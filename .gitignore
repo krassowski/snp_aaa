@@ -1,0 +1,9 @@
+archive/
+ensembl_db/
+ensembl_vcf/
+cosmic/
+biomart/
+notatki/
+*.pyc
+.cache
+
