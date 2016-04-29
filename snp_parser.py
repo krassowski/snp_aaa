@@ -304,9 +304,22 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
             if seq:
                 o.print(src + ':\t' + show_pos_with_context(seq, offset, -offset))
 
-    if reference_seq['cds'] != reference_seq['cdna']:
-        if ref_seq_len('cdna', reference_seq) == ref_seq_len('cds', reference_seq):
-            # todo - to nie jest jeszcze dobre - '---xxx' i 'zzzzyxx' nie wykryje, a powinno
+    if reference_seq.get('cds', '') != reference_seq.get('cdna', ''):
+        cdna_real_len = ref_seq_len('cdna', reference_seq)
+        cds_real_len = ref_seq_len('cds', reference_seq)
+        consensus = cds_real_len != cdna_real_len
+        if 'cds' in reference_seq and 'cdna' in reference_seq:
+            cds = reference_seq['cds']
+            cdna = reference_seq['cds']
+            consensus = True
+            if len(cdna) == len(cds):
+                for i in range(len(cdna)):
+                    if cdna[i] != '-' and cds[i] != '-' and cds[i] != cdna[i]:
+                        consensus = False
+                        break
+        if not consensus:
+            o.unmute()
+            o.print(reference_seq)
             o.print('cdna and cds sequences are totally inconsistent')
             exit()
         else:
