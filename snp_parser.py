@@ -15,9 +15,9 @@ DATASET = 'hsapiens_snp_som'
 #pip install pyvcf pysam biomart
 import vcf
 # pysam is required too
-import sys
-#better_biomart_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
-#sys.path.insert(0, better_biomart_path)
+import sys, os
+better_biomart_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
+sys.path.insert(0, better_biomart_path)
 
 from poly_a import has_poly_a
 from fasta_sequence_db import SequenceDB, FastSequenceDB
@@ -142,14 +142,72 @@ class VariantsData(BiomartData):
             'consequence_allele_string'
         ]
 
-        # TODO być może to właśnie ogranicza do cosmica
-        # synonymous_variant
-        # lista variantów na mailu
-        # 'so_parent_name': ['coding_sequence_variant', 'synonymous_variant']
-        # problemy z biomartem..
+
+        """
+        Available options:
+
+        3_prime_UTR_variant
+        splice_acceptor_variant
+        intergenic_variant
+        UTR_variant
+        coding_transcript_variant
+        nonsynonymous_variant
+        inframe_deletion
+        downstream_gene_variant
+        regulatory_region_amplification
+        sequence_comparison
+        TF_binding_site_variant
+        transcript_amplification
+        5_prime_UTR_variant
+        inframe_indel
+        transcript_ablation
+        synonymous_variant
+        sequence_variant
+        terminator_codon_variant
+        feature_variant
+        splice_site_variant
+        stop_retained_variant
+        structural_variant
+        protein_altering_variant
+        splice_donor_variant
+        inframe_insertion
+        stop_lost
+        feature_truncation
+        feature_amplification
+        exon_variant
+        inframe_variant
+        NMD_transcript_variant
+        non_coding_transcript_exon_variant
+        splice_region_variant
+        TFBS_ablation
+        transcript_variant
+        incomplete_terminal_codon_variant
+        stop_gained
+        coding_sequence_variant
+        gene_variant
+        upstream_gene_variant
+        regulatory_region_ablation
+        TFBS_amplification
+        start_lost
+        frameshift_variant
+        regulatory_region_variant
+        splicing_variant
+        feature_elongation
+        missense_variant
+        mature_miRNA_variant
+        intron_variant
+        internal_feature_elongation
+        feature_ablation
+        non_coding_transcript_variant
+        """
         filters.update({
-            #'so_parent_name': 'exon_variant'
-            'so_parent_name': 'coding_sequence_variant'
+            'so_parent_name':
+                [
+                    'synonymous_variant',
+                    'missense_variant',
+                    'stop_gained',
+                    'coding_sequence_variant'
+                ]
         })
         super(self.__class__, self).__init__(attributes, filters)
 
@@ -217,7 +275,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     o.print('Variant name: ' + variant.refsnp_id)
     o.indent()
 
-    gene_id = variant.ensembl_gene_stable_id
+    # gene_id = variant.ensembl_gene_stable_id
 
     transcript_id = variant.ensembl_transcript_stable_id
     strand = int(variant.ensembl_transcript_chrom_strand)
@@ -259,12 +317,12 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     chromosome = dna_db[variant.chr_name]
 
     start, end = chromosome.parse_coordinates(variant.chrom_start, variant.chrom_end)
-    # todo: remove plus one in fetch and showpostwith context call
+    # TODO: remove plus one in fetch and showpostwith context call
 
     pos = [str(variant.chr_name), int(variant.chrom_start), int(variant.chrom_end)]
 
     seq = chromosome.fetch(pos[1], pos[2], offset)
-    #nuc = chromosome.fetch(pos[1], pos[2])
+    # nuc = chromosome.fetch(pos[1], pos[2])
 
     reference_nuc['genome'] = seq[offset:-offset]
     reference_seq['genome'] = seq
@@ -298,7 +356,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
             consistent = False
 
     if not consistent:
-        # todo: skip?
+        # TODO: skip?
         o.print('Reference sequences are not consistent:')
         for src, seq in reference_seq.items():
             if seq:
@@ -335,7 +393,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     else:
         ref_seq = reference_seq['genome']
         o.print('\tChosing genome sequence as reference')
-
 
     o.print('Context: ' + show_pos_with_context(ref_seq, offset, -offset))
 
@@ -390,6 +447,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         exit()
 
     return True
+
 
 def summarize(variants_by_gene, cds_db, cdna_db):
 
@@ -496,7 +554,6 @@ if __name__ == '__main__':
                 with open(cache_name, 'wb') as f:
                     pickle.dump((variants_by_gene, cds_db, cdna_db), f)
                 o.print('variants data saved to cache')
-
 
         summarize(variants_by_gene, cds_db, cdna_db)
 
