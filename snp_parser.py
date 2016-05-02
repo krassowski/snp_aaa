@@ -28,6 +28,112 @@ o = OutputFormatter()
 from biomart import BiomartDataset
 
 
+class Chromosome(object):
+
+    def __init__(self, name):
+        self.name = name
+
+class CompleteCNA(object):
+
+    def __init__(self, path):
+        import time, sys
+        from total_size import total_size
+
+        time_start = time.time()
+
+        db = {}
+        self.transcript_to_gene = {}
+        self.gene_to_gene_id = {}
+        with open('cosmic/All_COSMIC_Genes.fasta', 'r') as f:
+            for line in f:
+                if line.startswith('>'):
+                    gene, transcript = line[1:-1].split()
+                    self.transcript_to_gene[transcript] = gene
+
+        o.print('Cosmic transcript → genes mapping parsed')
+
+        rstrip = str.rstrip
+        split = str.split
+
+        # USE TABIX. create a script which rewrites the CNA file to tabix
+        chromosomes_map = map(str, range(1, 23)) + ['X', 'Y']
+        chromosomes = map(Chromosome, chromosomes_map)
+        chromosomes_map = {chrom: nr for nr, chrom in enumerate(chromosomes_map)}
+
+        with open(path, 'r') as f:
+            header = f.next().rstrip().split('\t')
+            self.original_header = header
+            to_save = ['TOTAL_CN', 'MUT_TYPE', 'Chromosome:G_Start..G_Stop']
+            self.headers = to_save
+
+            #x = 100000
+            x = 5000000
+
+            gain_col = header.index('MUT_TYPE')
+            cnt_col = header.index('TOTAL_CN')
+            pos_col = header.index('Chromosome:G_Start..G_Stop')
+            gene_name_col = header.index('GENE_NAME')
+            gene_id_col = header.index('ID_GENE')
+
+            # gain_loss = {'GAIN': True, 'LOSS': False}
+            for line in f:
+                if x < 0:
+                    break
+                x -= 1
+                line = rstrip(line).split('\t')
+                gene_name = line[gene_name_col]
+                gene_id = int(line[gene_id_col])
+
+                chrom, cords = split(line[pos_col], ':')
+                start, end = split(cords, '..')
+
+                if gene_id not in db:
+                    # self.db[gene_id] = (chrom, [])
+                    db[gene_id] = (chromosomes[chromosomes_map[chrom]], [])
+                    self.gene_to_gene_id[gene_name] = gene_id
+
+                # gain = gain_loss[line[gain_col]]
+
+                if line[gain_col] == 'GAIN':
+                    gain = True
+                else:
+                    gain = False
+                    assert line[gain_col] == 'LOSS'
+
+                try:
+                    total_cn = int(line[cnt_col])
+                except ValueError:
+                    try:
+                        total_cn = float(line[cnt_col])
+                    except ValueError:
+                        pass
+                    total_cn = 0
+
+                # self.db[gene_id].append((total_cn, gain, chromosomes[chromosomes_map[chrom]], int(start), int(end)))
+                db[gene_id][1].append((total_cn, gain, int(start), int(end)))
+
+        self.db = db
+
+        transcript_to_gene = {}
+        for transcript, gene in self.transcript_to_gene.iteritems():
+            if gene in self.gene_to_gene_id:
+                transcript_to_gene[transcript] = self.gene_to_gene_id[gene]
+
+        self.transcript_to_gene = transcript_to_gene
+        del self.gene_to_gene_id
+
+        print(total_size(self.transcript_to_gene))
+        time_end = time.time()
+        print(total_size(self.db))
+        #print(total_size(self.gene_to_gene_id))
+        print(time_end - time_start)
+
+    def get_by_transcript(self, transcript):
+        gene_name = self.transcript_to_gene[transcript]
+        gene_id = self.gene_to_gene_id[gene_name]
+        return self.db[gene_id][1]
+
+
 class BiomartData(object):
 
     def __init__(self, attributes, filters):
@@ -263,13 +369,15 @@ def parse():
 
     return variants_by_gene
 
+
 def ref_seq_len(src, ref):
     if not src in ref:
         return 0
     return len(ref[src].strip('-'))
 
 
-def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
+def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, cna):
+    exit()
     o.mute()
 
     o.print('Variant name: ' + variant.refsnp_id)
@@ -328,6 +436,8 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     reference_seq['genome'] = seq
 
     o.print('Chromosomal position: {0}:{1}-{2}'.format(*pos))
+
+    variant.cna_list = cna.get_by_transcript(transcript_id)
 
     # to get to vcf stored data by vcf reader, change coordinates to 0-based
     pos[1] -= 1
@@ -419,12 +529,17 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         o.outdent()
         return False
 
+    o.unmute()
     # o.print(record.num_called, record.call_rate, record.num_unknown)  # ZeroDivisionError ?
     # o.print(record.num_hom_ref, record.num_het, record.num_hom_alt)
     # o.print(record.nucl_diversity, record.aaf, record.heterozygosity)  # ZeroDivisionError ?
     # o.print(record.is_snp, record.is_indel, record.is_transition, record.is_deletion)
     # o.print(record.is_monomorphic)
     # o.print(vcf_data)
+    for k, v in vcf_data.__dict__.items():
+        print(k, v)
+
+    exit()
 
     alt = vcf_data.ALT
     if len(alt) != 1:
@@ -464,6 +579,8 @@ def summarize(variants_by_gene, cds_db, cdna_db):
     for chromosome in chromosomes:
         dna_db[chromosome] = FastSequenceDB(sequence_type='dna', id_type='chromosome.' + chromosome)
 
+    cna = CompleteCNA('cosmic_new/CosmicWGS_CompleteCNA.tsv')
+
     """
     Przygotowanie pliku tabix:
     1. zainstaluj htslib z http://www.htslib.org
@@ -481,7 +598,7 @@ def summarize(variants_by_gene, cds_db, cdna_db):
         assert len(unique_variants) == len(variants)
 
         for variant in variants:
-            analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl)
+            analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, cna)
 
         correct_variants = filter(lambda variant: variant.correct, variants)
         poly_a_variants = filter(lambda variant: variant.has_poly_a, variants)
