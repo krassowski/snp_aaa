@@ -22,6 +22,8 @@ sys.path.insert(0, better_biomart_path)
 from poly_a import has_poly_a
 from fasta_sequence_db import SequenceDB, FastSequenceDB
 from output_formatter import OutputFormatter
+from data_store import DataStore
+
 
 o = OutputFormatter()
 
@@ -33,99 +35,46 @@ class Chromosome(object):
     def __init__(self, name):
         self.name = name
 
-class CompleteCNA(object):
 
-    def __init__(self, path):
-        import time, sys
-        from total_size import total_size
+import tabix
 
-        time_start = time.time()
+class CosmicMappings(object):
 
-        """
-        Header:
-        ID  ID_GENE GENE_NAME   ID_SAMPLE   ID_tumour   Primary site
-        Site subtype 1  Site subtype 2  Site subtype 3  Primary histology
-        Histology subtype 1 Histology subtype 2 Histology subtype 3 SAMPLE_NAME
-        TOTAL_CN    MINOR_ALLELE    MUT_TYPE    ID_STUDY    GRCh    Chromosome:G_Start..G_Stop
-        """
-
-        db = {}
+    def __init__(self, path='cosmic/All_COSMIC_Genes.fasta'):
         self.transcript_to_gene = {}
-        gene_to_gene_id = {}
-        with open('cosmic/All_COSMIC_Genes.fasta', 'r') as f:
+        with open(path, 'r') as f:
             for line in f:
                 if line.startswith('>'):
                     gene, transcript = line[1:-1].split()
                     self.transcript_to_gene[transcript] = gene
 
-        o.print('Cosmic transcript → genes mapping parsed')
-
-        rstrip = str.rstrip
-        split = str.split
-
-        # USE TABIX. create a script which rewrites the CNA file to tabix
-        chromosomes_map = map(str, range(1, 23)) + ['X', 'Y']
-        chromosomes = map(Chromosome, chromosomes_map)
-        chromosomes_map = {chrom: nr for nr, chrom in enumerate(chromosomes_map)}
-
-        with open(path, 'r') as f:
-            header = f.next().rstrip().split('\t')
-            self.original_header = header
-
-            # gain_loss = {'GAIN': True, 'LOSS': False}
-            for line in f:
-                line = rstrip(line).split('\t')
-                gene_name = line[2]
-                gene_id = int(line[1])
-
-                chrom, cords = split(line[19], ':')
-                start, end = split(cords, '..')
-
-                # gain = gain_loss[line[gain_col]]
-
-                try:
-                    total_cn = int(line[14])
-                except ValueError:
-                    try:
-                        total_cn = float(line[14])
-                    except ValueError:
-                        pass
-                    total_cn = 0
-
-                if line[16] == 'GAIN':
-                    gain = True
-                else:
-                    gain = False
-                    assert line[16] == 'LOSS'
-
-                try:
-                    db[gene_id][1].append((total_cn, int(start), int(end)))
-                except KeyError:
-                    db[gene_id] = (chromosomes[chromosomes_map[chrom]], [(total_cn, int(start), int(end))])
-                    gene_to_gene_id[gene_name] = gene_id
-
-        self.db = db
-
-        transcript_to_gene = {}
-        for transcript, gene in self.transcript_to_gene.iteritems():
-            if gene in gene_to_gene_id:
-                transcript_to_gene[transcript] = gene_to_gene_id[gene]
-
-        self.transcript_to_gene = transcript_to_gene
-        del gene_to_gene_id
-
-        print(total_size(self.transcript_to_gene))
-        time_end = time.time()
-        print(total_size(self.db))
-        #print(total_size(self.gene_to_gene_id))
-        print(time_end - time_start)
-
-    def get_by_transcript(self, transcript):
-        gene_id = self.transcript_to_gene[transcript]
-        return self.db[gene_id][1]
+    def gene_by_transcript(self, transcript):
+        return self.transcript_to_gene[transcript]
 
 
-class BiomartData(object):
+class CompleteCNA(DataStore):
+
+    def __init__(self, path):
+        header = 'ID	ID_GENE	GENE_NAME	ID_SAMPLE	ID_tumour	Primary site	Site subtype 1	Site subtype 2	Site subtype 3	Primary histology	Histology subtype 1	Histology subtype 2	Histology subtype 3	SAMPLE_NAME	TOTAL_CN	MINOR_ALLELE	MUT_TYPE	ID_STUDY	GRCh	Chromosome	G_Start	G_Stop'
+        # TODO: use tabix to retrive header
+        self.attributes = header.lower().split('\t')
+        self.tb = tabix.open(path)
+        self.cosmic = CosmicMappings()
+
+    def get(self, chrom, start, end, transcript_id=None, flanks=0):
+        start -= flanks
+        end += flanks
+        records = self.tb.query(chrom, start, end)
+
+        records = map(self.parse_row, records)
+        if transcript_id:
+            gene_name = self.cosmic.gene_by_transcript(transcript_id)
+            records = filter(lambda x: x.gene_name == gene_name, records)
+
+        return records
+
+
+class BiomartData(DataStore):
 
     def __init__(self, attributes, filters):
         self.attributes = attributes
@@ -140,63 +89,6 @@ class BiomartData(object):
 
     def count(self):
         return som_snp.count()
-
-    def pos(self, attribute):
-        try:
-            return self.attributes.index(attribute)
-        except ValueError:
-            raise KeyError
-
-    def parse_row(self, row):
-        return DataRow(self, row)
-
-
-class DataRow(object):
-
-    def __init__(self, parent, line):
-        line = line.decode('utf-8')
-        self._data = line.split('\t')
-        self._parent = parent
-
-    def __getattr__(self, k):
-        if k.startswith('__') and k.endswith('__'):
-            return super(DataRow, self).__getattr__(k)
-        try:
-            return self._data[self._parent.pos(k)]
-        except KeyError:
-            raise AttributeError
-
-    def __setattr__(self, k, v):
-        if k.startswith('_'):
-            super(DataRow, self).__setattr__(k, v)
-        else:
-            try:
-                self._data[self.get_index(k)] = v
-            except KeyError:
-                self._parent.attributes.append(k)
-                self.__setattr__(k, v)
-            except IndexError:
-                while len(self._data) <= len(self._parent.attributes):
-                    self._data.append(None)
-                self.__setattr__(k, v)
-
-    def __repr__(self):
-        buff = 'Biomart DataRow:\n\t'
-        buff += '\n\t'.join([self.get_key(i) + ': ' + str(v) for i, v in enumerate(self._data)])
-
-        return buff
-
-    def get_key(self, index):
-        return self._parent.attributes[index]
-
-    def get_index(self, key):
-        return self._parent.pos(key)
-
-    def get(self, k):
-        return self.__getattr__(k)
-
-    def set(self, k, v):
-        return self.__setattr__(k, v)
 
 
 class VariantsData(BiomartData):
@@ -335,6 +227,8 @@ def parse():
 
     variants_by_gene = {}
 
+    #TODO reduntancja wciąż: COSM3391894 i COSM3391893 to to samo czy co innego?
+
     previous_id = None
     # te atrybuty są zmienną częścią w zduplikowanych rekordach -
     # dla jednej mutacji o danym id, ensembl zwraca np 4 rekordy
@@ -368,8 +262,7 @@ def ref_seq_len(src, ref):
 
 
 def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, cna):
-    exit()
-    o.mute()
+    #o.mute()
 
     o.print('Variant name: ' + variant.refsnp_id)
     o.indent()
@@ -428,7 +321,21 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
 
     o.print('Chromosomal position: {0}:{1}-{2}'.format(*pos))
 
-    variant.cna_list = cna.get_by_transcript(transcript_id)
+
+    # to powinno być trzymane na poziomie transkryptu?
+    cna_records = cna.get(*pos, transcript_id=variant.ensembl_transcript_stable_id, flanks=10)
+
+    o.print(len(cna_records))
+    cna_records = filter(lambda x: abs(int(x.g_stop) - int(variant.chrom_end)) < 100, cna_records)
+
+    o.print(len(cna_records))
+    for r in cna_records:
+        o.print(r)
+
+    if len(cna_records) > 0:
+        exit()
+
+    variant.cna_list = cna_records
 
     # to get to vcf stored data by vcf reader, change coordinates to 0-based
     pos[1] -= 1
@@ -520,17 +427,16 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
         o.outdent()
         return False
 
-    o.unmute()
+    #o.unmute()
     # o.print(record.num_called, record.call_rate, record.num_unknown)  # ZeroDivisionError ?
     # o.print(record.num_hom_ref, record.num_het, record.num_hom_alt)
     # o.print(record.nucl_diversity, record.aaf, record.heterozygosity)  # ZeroDivisionError ?
     # o.print(record.is_snp, record.is_indel, record.is_transition, record.is_deletion)
     # o.print(record.is_monomorphic)
     # o.print(vcf_data)
-    for k, v in vcf_data.__dict__.items():
-        print(k, v)
-
-    exit()
+    #for k, v in vcf_data.__dict__.items():
+    #    print(k, v)
+    #exit()
 
     alt = vcf_data.ALT
     if len(alt) != 1:
@@ -570,7 +476,7 @@ def summarize(variants_by_gene, cds_db, cdna_db):
     for chromosome in chromosomes:
         dna_db[chromosome] = FastSequenceDB(sequence_type='dna', id_type='chromosome.' + chromosome)
 
-    cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv')
+    cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv.sorted.gz')
 
     """
     Przygotowanie pliku tabix:
