@@ -28,15 +28,8 @@ from data_store import DataStore
 o = OutputFormatter()
 
 from biomart import BiomartDataset
-
-
-class Chromosome(object):
-
-    def __init__(self, name):
-        self.name = name
-
-
 import tabix
+
 
 class CosmicMappings(object):
 
@@ -130,7 +123,6 @@ class VariantsData(BiomartData):
             'consequence_type_tv',
             'consequence_allele_string'
         ]
-
 
         """
         Available options:
@@ -256,7 +248,7 @@ def parse():
 
 
 def ref_seq_len(src, ref):
-    if not src in ref:
+    if src not in ref:
         return 0
     return len(ref[src].strip('-'))
 
