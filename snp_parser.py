@@ -41,9 +41,17 @@ class CompleteCNA(object):
 
         time_start = time.time()
 
+        """
+        Header:
+        ID  ID_GENE GENE_NAME   ID_SAMPLE   ID_tumour   Primary site
+        Site subtype 1  Site subtype 2  Site subtype 3  Primary histology
+        Histology subtype 1 Histology subtype 2 Histology subtype 3 SAMPLE_NAME
+        TOTAL_CN    MINOR_ALLELE    MUT_TYPE    ID_STUDY    GRCh    Chromosome:G_Start..G_Stop
+        """
+
         db = {}
         self.transcript_to_gene = {}
-        self.gene_to_gene_id = {}
+        gene_to_gene_id = {}
         with open('cosmic/All_COSMIC_Genes.fasta', 'r') as f:
             for line in f:
                 if line.startswith('>'):
@@ -63,64 +71,48 @@ class CompleteCNA(object):
         with open(path, 'r') as f:
             header = f.next().rstrip().split('\t')
             self.original_header = header
-            to_save = ['TOTAL_CN', 'MUT_TYPE', 'Chromosome:G_Start..G_Stop']
-            self.headers = to_save
-
-            #x = 100000
-            x = 5000000
-
-            gain_col = header.index('MUT_TYPE')
-            cnt_col = header.index('TOTAL_CN')
-            pos_col = header.index('Chromosome:G_Start..G_Stop')
-            gene_name_col = header.index('GENE_NAME')
-            gene_id_col = header.index('ID_GENE')
 
             # gain_loss = {'GAIN': True, 'LOSS': False}
             for line in f:
-                if x < 0:
-                    break
-                x -= 1
                 line = rstrip(line).split('\t')
-                gene_name = line[gene_name_col]
-                gene_id = int(line[gene_id_col])
+                gene_name = line[2]
+                gene_id = int(line[1])
 
-                chrom, cords = split(line[pos_col], ':')
+                chrom, cords = split(line[19], ':')
                 start, end = split(cords, '..')
-
-                if gene_id not in db:
-                    # self.db[gene_id] = (chrom, [])
-                    db[gene_id] = (chromosomes[chromosomes_map[chrom]], [])
-                    self.gene_to_gene_id[gene_name] = gene_id
 
                 # gain = gain_loss[line[gain_col]]
 
-                if line[gain_col] == 'GAIN':
-                    gain = True
-                else:
-                    gain = False
-                    assert line[gain_col] == 'LOSS'
-
                 try:
-                    total_cn = int(line[cnt_col])
+                    total_cn = int(line[14])
                 except ValueError:
                     try:
-                        total_cn = float(line[cnt_col])
+                        total_cn = float(line[14])
                     except ValueError:
                         pass
                     total_cn = 0
 
-                # self.db[gene_id].append((total_cn, gain, chromosomes[chromosomes_map[chrom]], int(start), int(end)))
-                db[gene_id][1].append((total_cn, gain, int(start), int(end)))
+                if line[16] == 'GAIN':
+                    gain = True
+                else:
+                    gain = False
+                    assert line[16] == 'LOSS'
+
+                try:
+                    db[gene_id][1].append((total_cn, int(start), int(end)))
+                except KeyError:
+                    db[gene_id] = (chromosomes[chromosomes_map[chrom]], [(total_cn, int(start), int(end))])
+                    gene_to_gene_id[gene_name] = gene_id
 
         self.db = db
 
         transcript_to_gene = {}
         for transcript, gene in self.transcript_to_gene.iteritems():
-            if gene in self.gene_to_gene_id:
-                transcript_to_gene[transcript] = self.gene_to_gene_id[gene]
+            if gene in gene_to_gene_id:
+                transcript_to_gene[transcript] = gene_to_gene_id[gene]
 
         self.transcript_to_gene = transcript_to_gene
-        del self.gene_to_gene_id
+        del gene_to_gene_id
 
         print(total_size(self.transcript_to_gene))
         time_end = time.time()
@@ -129,8 +121,7 @@ class CompleteCNA(object):
         print(time_end - time_start)
 
     def get_by_transcript(self, transcript):
-        gene_name = self.transcript_to_gene[transcript]
-        gene_id = self.gene_to_gene_id[gene_name]
+        gene_id = self.transcript_to_gene[transcript]
         return self.db[gene_id][1]
 
 
@@ -579,7 +570,7 @@ def summarize(variants_by_gene, cds_db, cdna_db):
     for chromosome in chromosomes:
         dna_db[chromosome] = FastSequenceDB(sequence_type='dna', id_type='chromosome.' + chromosome)
 
-    cna = CompleteCNA('cosmic_new/CosmicWGS_CompleteCNA.tsv')
+    cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv')
 
     """
     Przygotowanie pliku tabix:
@@ -669,7 +660,7 @@ if __name__ == '__main__':
             cdna_db = SequenceDB(index_by='transcript', sequence_type='cdna', restrict_to=variants_to_load)
             if cache == 'save':
                 with open(cache_name, 'wb') as f:
-                    pickle.dump((variants_by_gene, cds_db, cdna_db), f)
+                    pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
                 o.print('variants data saved to cache')
 
         summarize(variants_by_gene, cds_db, cdna_db)
