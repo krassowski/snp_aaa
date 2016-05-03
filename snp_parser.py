@@ -343,7 +343,8 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
 
     temp_ref_seq = reference_seq['genome']
     consistent = True
-    for src, sequence in reference_seq.items():
+
+    for src, seq in reference_seq.items():
         if seq.startswith('-') or seq.endswith('-'):
             o.print('Offset surpasses {0} transcript span'.format(src))
         while seq.startswith('-'):
@@ -384,15 +385,15 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
             o.print('cds and cdna of different length')
             variant.cds_cdna_inconsistent = True
 
-    if ref_seq_len('cdna', reference_seq) > ref_seq_len('cds', reference_seq) and ref_seq_len('cdna', reference_seq):
-        ref_seq = reference_seq['cdna']
-        o.print('\tChosing cdna sequence as reference')
-    elif ref_seq_len('cds', reference_seq) > ref_seq_len('cdna', reference_seq) and ref_seq_len('cds', reference_seq):
+    if ref_seq_len('cds', reference_seq) >= ref_seq_len('cdna', reference_seq) and ref_seq_len('cds', reference_seq):
         ref_seq = reference_seq['cds']
-        o.print('\tChosing cds sequence as reference')
+        o.print('Chosing cds sequence as reference')
+    elif ref_seq_len('cdna', reference_seq):
+        ref_seq = reference_seq['cdna']
+        o.print('Chosing cdna sequence as reference')
     else:
         ref_seq = reference_seq['genome']
-        o.print('\tChosing genome sequence as reference')
+        o.print('Chosing genome sequence as reference')
 
     o.print('Context: ' + show_pos_with_context(ref_seq, offset, -offset))
 
@@ -431,10 +432,11 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
     #exit()
 
     alt = vcf_data.ALT
-    if len(alt) != 1:
-        o.print('Too much alternative alleles')
 
-    mutated_seq = ref_seq[:offset] + str(alt[0]) + ref_seq[offset + 1:]
+    assert len(alt) == 1
+    alt = alt[0]
+
+    mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + 1:]
 
     variant.sequence = ref_seq
     variant.vcf_data = vcf_data
@@ -442,7 +444,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
     variant.will_have_poly_a = has_poly_a(mutated_seq, offset, len(mutated_seq) - offset)
     variant.correct = True
 
-    o.print(mutated_seq)
+    o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
 
     o.unmute()
     o.outdent()
