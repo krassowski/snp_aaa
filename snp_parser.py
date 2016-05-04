@@ -317,15 +317,18 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
     # to powinno być trzymane na poziomie transkryptu?
     cna_records = cna.get(*pos, transcript_id=variant.ensembl_transcript_stable_id, flanks=10)
 
-    o.print(len(cna_records))
-    cna_records = filter(lambda x: abs(int(x.g_stop) - int(variant.chrom_end)) < 100, cna_records)
+    # skoro one są takie duże to nie opłaca mi się tego indexowac na współrzędnych
+    # mogę spróbować agregować to przy wczytywaniu → najpierw mam warianty, potem wczytuję:
+    # biorę nazwę genu, zapisuję koordynaty oraz gain/loss. copy number już mnie nie interesuje.
+    # robię algorytm grupujący gain/loss i względem koordynatów, tak jak na stronie. potem wybieram
+    # odpowiednio: # of najdłuższy gain, max(loss) i zapisuję.
+    # robię to niezależnie dla każdego "genu cosmicowego", potem grupuję to w prawdziwe "geny". i patrzę czy konsystentne
+    # - wzgledem siebie i jako całość - szczególnie stosunki gain/loss muszą być zbliżone!
 
-    o.print(len(cna_records))
-    for r in cna_records:
-        o.print(r)
+    # tak samo z rekordami z ensembla - cosmic grupuję nie dość że po genie prawdziwym to po genie "cosmicowym" i sprawdzam czy ilość
+    # mutacji poliA jest konsystentna. Jeśli nie uda się tego sensownie zrobić, to po prostu je grupuję.
 
-    if len(cna_records) > 0:
-        exit()
+    o.print("CNA records count: " + len(cna_records))
 
     variant.cna_list = cna_records
 
