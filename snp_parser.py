@@ -28,8 +28,6 @@ from data_store import DataStore
 o = OutputFormatter()
 
 from biomart import BiomartDataset
-import tabix
-
 
 def inspect(obj):
     """
@@ -44,64 +42,36 @@ def inspect(obj):
     o.outdent()
 
 
-class CosmicMappings(object):
-
-    def __init__(self, path='cosmic/All_COSMIC_Genes.fasta'):
-        self.transcript_to_gene = {}
-        with open(path, 'r') as f:
-            for line in f:
-                if line.startswith('>'):
-                    gene, transcript = line[1:-1].split()
-                    self.transcript_to_gene[transcript] = gene
-
-    def gene_by_transcript(self, transcript):
-        return self.transcript_to_gene[transcript]
-
-
-class CompleteCNA(DataStore):
-
-    """
-    a może indeksować tabixem po gene_id?
-    """
-
-    def __init__(self, path):
-        header = 'ID	ID_GENE	GENE_NAME	ID_SAMPLE	ID_tumour	Primary site	Site subtype 1	Site subtype 2	Site subtype 3	Primary histology	Histology subtype 1	Histology subtype 2	Histology subtype 3	SAMPLE_NAME	TOTAL_CN	MINOR_ALLELE	MUT_TYPE	ID_STUDY	GRCh	Chromosome	G_Start	G_Stop'
-        # TODO: use tabix to retrive header
-        self.attributes = header.lower().split('\t')
-        self.tb = tabix.open(path)
-        self.cosmic = CosmicMappings()
-
-    def get(self, chrom, start, end, transcript_id=None, flanks=0):
-        start -= flanks
-        end += flanks
-        records = self.tb.query(chrom, start, end)
-
-        records = map(self.parse_row, records)
-        if transcript_id:
-            gene_name = self.cosmic.gene_by_transcript(transcript_id)
-            records = filter(lambda x: x.gene_name == gene_name, records)
-
-        return records
-
-
 class BiomartData(DataStore):
 
-    def __init__(self, attributes, filters, dataset=None):
+    def __init__(self, attributes, filters, dataset=None, fasta=False):
         self.attributes = attributes
         self.filters = filters
         if not dataset:
             dataset = BiomartDataset(BIOMART_URL, name=DATASET)
         self.dataset = dataset
-        self.fetch_data()
+
+        self.fasta = fasta
+
+        data = self.fetch_data()
+        iterator = data.iter_lines()
+
+        super(BiomartData, self).__init__(attributes, data, iterator, single_rows=not fasta)
+
+    def is_ready_to_flush(self, rows):
+        if self.fasta:
+            return filter(bool, [row.startswith('>') for row in rows])
+        else:
+            return True
 
     def fetch_data(self):
-        self.data = self.dataset.search({
+        return self.dataset.search({
             'filters': self.filters,
             'attributes': [unicode(x) for x in self.attributes]
             })
 
-        def count(self):
-            return self.dataset.count()
+    def count(self):
+        return self.dataset.count()
 
 
 class VariantsData(BiomartData):
@@ -217,7 +187,7 @@ def show_pos_with_context(seq, start, end):
     return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
 
 
-def gene_names_from_patacsdb_csv(how_many=250):
+def gene_names_from_patacsdb_csv(how_many):
     genes = []
     count = 0
     with open('patacsdb_all.csv', 'r') as f:
@@ -231,9 +201,9 @@ def gene_names_from_patacsdb_csv(how_many=250):
     return genes
 
 
-def parse():
+def parse(how_many=10):
 
-    genes_from_patacsdb = gene_names_from_patacsdb_csv()
+    genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many)
 
     filters = {
         'ensembl_gene': genes_from_patacsdb
@@ -256,8 +226,10 @@ def parse():
     redundant_attrs = ['phenotype_description', 'set_name', 'set_description']
 
     # I assert that two redundant entires comes always one after another.
-    for line in variants.data.iter_lines():
-        variant = variants.parse_row(line)
+    for variant in variants:
+
+        print(type(variant))
+
         gene = variant.ensembl_gene_stable_id
 
         assert variant.refsnp_id
@@ -284,7 +256,7 @@ def ref_seq_len(src, ref):
     return len(ref[src].strip('-'))
 
 
-def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, cna):
+def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     o.mute()
 
     o.print('Variant name:', variant.refsnp_id)
@@ -344,25 +316,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
     reference_seq['genome'] = seq
 
     o.print('Chromosomal position: {0}:{1}-{2}'.format(*pos))
-
-
-    # to powinno być trzymane na poziomie transkryptu?
-    #   cna_records = cna.get(*pos, transcript_id=variant.ensembl_transcript_stable_id, flanks=10)
-
-    # skoro one są takie duże to nie opłaca mi się tego indexowac na współrzędnych
-    # mogę spróbować agregować to przy wczytywaniu → najpierw mam warianty, potem wczytuję:
-    # biorę nazwę genu, zapisuję koordynaty oraz gain/loss. copy number już mnie nie interesuje.
-    # robię algorytm grupujący gain/loss i względem koordynatów, tak jak na stronie. potem wybieram
-    # odpowiednio: # of najdłuższy gain, max(loss) i zapisuję.
-    # robię to niezależnie dla każdego "genu cosmicowego", potem grupuję to w prawdziwe "geny". i patrzę czy konsystentne
-    # - wzgledem siebie i jako całość - szczególnie stosunki gain/loss muszą być zbliżone!
-
-    # tak samo z rekordami z ensembla - cosmic grupuję nie dość że po genie prawdziwym to po genie "cosmicowym" i sprawdzam czy ilość
-    # mutacji poliA jest konsystentna. Jeśli nie uda się tego sensownie zrobić, to po prostu je grupuję.
-
-    #   o.print("CNA records count: {}".format(len(cna_records)))
-
-    #   variant.cna_list = cna_records
 
     # to get to vcf stored data by vcf reader, change coordinates to 0-based
     pos[1] -= 1
@@ -490,7 +443,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, c
     return True
 
 
-def summarize(variants_by_gene, cds_db, cdna_db, cna):
+def parse_variants(cds_db, cdna_db):
 
     """
     vcf.parser uses 0-based coordinates:
@@ -517,6 +470,8 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
 
     all_variants_count = 0
 
+    cosmic_genes_to_load = set()
+
     for gene, variants in variants_by_gene.iteritems():
 
         # Just to be certain
@@ -526,10 +481,12 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
         all_variants_count += len(variants)
 
         for variant in variants:
-            analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, cna)
+            analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl)
 
         # Remove variants with non-complete data 
         correct_variants = filter(lambda variant: variant.correct, variants)
+
+        cosmic_genes_to_load.update([variant.vcf_data.INFO['GENE'] for variant in correct_variants])
 
         by_transcript = {}
 
@@ -543,8 +500,9 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
             # have a canonical transcript, at least it is the best guess), eg.:
             # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
 
-            full_gene_id = variant.vcf_data.INFO['GENE']
-            chunks = full_gene_id.split('_')
+            gene_transcript_id = variant.vcf_data.INFO['GENE']
+            """
+            chunks = gene_transcript_id.split('_')
             if len(chunks) > 1:
                 transcript_id = chunks[1]
                 # just in case to detect potential ambuguity
@@ -554,6 +512,8 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
                 # canonical transcript, accesible from 'variant' object
                 # transcript_id = variant.ensembl_transcript_stable_id
                 transcript_id = ''
+            """
+            transcript_id = gene_transcript_id
 
             try:
                 by_transcript[transcript_id].append(variant)
@@ -561,6 +521,131 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
                 by_transcript[transcript_id] = [variant]
 
         variants_by_gene_by_transcript[gene] = by_transcript
+
+    o.print('All variants', all_variants_count)
+
+    return variants_by_gene_by_transcript, cosmic_genes_to_load
+
+
+LEFT = 0
+RIGHT = 1
+
+
+class SeqTree(object):
+
+    def __init__(self, start, end):
+        self.gene_start = start
+        self.gene_end = end
+        self.l = []
+        self.whole_gene = 0
+
+    def add(self, start, end):
+
+        if start <= self.gene_start and end >= self.gene_end:
+            self.whole_gene += 1
+            return
+
+        l = self.l
+
+        if not l:
+            l += [[start, 0], [end, 1]]
+            return
+
+        l += [[self.gene_end, 0]]
+        prev = self.gene_start
+        for i in range(len(l)):
+            e = l[i]
+            if start > prev and start < e[0]:
+                l = l[:i] + [[start, e[1]]] + l[i:]
+                break
+            prev = e[0]
+        l = l[:-1]
+
+        l = [[self.gene_start, 0]] + l
+        prev = self.gene_end
+        for i in range(len(l)-1, 1, -1):
+            e = l[i]
+            if end < prev and end > e[0]:
+                l = l[:i+1] + [[end, e[1]]] + l[i+1:]
+                break
+            prev = e[0]
+        l = l[1:]
+
+        l += [[self.gene_end, 0]]
+        prev = self.gene_start
+        for i in range(len(l)):
+            e = l[i]
+            if start <= prev and end >= e[0]:
+                l[i][1] += 1
+            prev = e[0]
+        l = l[:-1]
+        self.l = l
+
+    def show(self):
+        print(self.whole_gene)
+
+        print(self.gene_start)
+        print(self.gene_end)
+        print(self.l)
+
+        l = self.l
+        x = []
+        l = [[self.gene_start, 0]] + l
+        for e in l:
+            if e[0] < self.gene_end and self.gene_start < e[0]:
+                x += [e[1]]
+        l = l[1:]
+
+        print(x)
+
+def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings):
+
+    # biorę nazwę genu, zapisuję koordynaty oraz gain/loss. copy number już mnie nie interesuje.
+    # robię algorytm grupujący gain/loss i względem koordynatów, tak jak na stronie. potem wybieram
+    # odpowiednio: # of najdłuższy gain, max(loss) i zapisuję.
+    # robię to niezależnie dla każdego "genu cosmicowego", potem grupuję to w prawdziwe "geny". i patrzę czy konsystentne
+    # - wzgledem siebie i jako całość - szczególnie stosunki gain/loss muszą być zbliżone!
+
+    # tak samo z rekordami z ensembla - cosmic grupuję nie dość że po genie prawdziwym to po genie "cosmicowym" i sprawdzam czy ilość
+    # mutacji poliA jest konsystentna. Jeśli nie uda się tego sensownie zrobić, to po prostu je grupuję.
+
+    cna_count = {}
+    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+        cna_count[gene] = {}
+        for gene_transcript_id, variants in variants_by_transcript.iteritems():
+
+            cna_list = cna.get_by_gene_and_transcript(gene_transcript_id)
+
+            print(gene_transcript_id)
+
+            transcript = cosmic_mappings.transcript_by_gene(gene_transcript_id)
+            # współrzędne technicznie dobre ale inne niż cosmicowe :(
+            start, end = map(int, transcripts_positions[transcript])
+
+            gain = SeqTree(start, end)
+            loss = SeqTree(start, end)
+
+            for is_gain, s, e in cna_list:
+                if is_gain:
+                    gain.add(s, e)
+                else:
+                    loss.add(s, e)
+
+            gain.show()
+            loss.show()
+
+            exit()
+
+            cna_longest_gain = somfunc()
+            cna_max_loss = max()
+
+            cna_count[gene][gene_transcript_id] = (cna_longest_gain, cna_max_loss)
+
+            for variant in variants:
+                variant.cna_list = cna_list
+            print(cna_list)
+
+
 
     genes_poly_aaa_increase = 0
     genes_poly_aaa_decrease = 0
@@ -574,7 +659,7 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
         unique_variants = []
         unique_variants_keys = []
 
-        for transcript_id, variants in variants_by_transcript.iteritems():
+        for gene_transcript_id, variants in variants_by_transcript.iteritems():
             # Loss of information here!
             for variant in variants:
                 key = '\t'.join([
@@ -609,8 +694,11 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
         poly_a_increase = filter(lambda variant: variant.poly_a_increase, variants)
         poly_a_decrease = filter(lambda variant: variant.poly_a_decrease, variants)
 
-        o.print('# of poly_a before mutations', len(poly_a_variants))
-        o.print('# of poly_a after mutations', len(poly_a_potential_variants))
+        o.print('# of poly_a adjacent to variants:')
+        o.indent()
+        o.print('before mutations', len(poly_a_variants))
+        o.print('after mutations', len(poly_a_potential_variants))
+        o.outdent()
         o.print('# of poly_a increase events', len(poly_a_increase))
         o.print('# of poly_a decrease events', len(poly_a_decrease))
 
@@ -625,7 +713,6 @@ def summarize(variants_by_gene, cds_db, cdna_db, cna):
 
     print('Analyzed genes:', gene_count)
     print('Analyzed variants:', variants_count)
-    print('Rejected variants:', all_variants_count - variants_count)
     print('Decreased poly_aaa:', genes_poly_aaa_decrease)
     print('Increased poly_aaa:', genes_poly_aaa_increase)
 
@@ -679,7 +766,7 @@ if __name__ == '__main__':
             o.print('Variants data loaded from cache')
         else:
             o.print('Parsing dataset:', DATASET)
-            variants_by_gene = parse()
+            variants_by_gene = parse(5)
             transcripts_to_load = []
             for gene, variants in variants_by_gene.iteritems():
                 transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
@@ -688,13 +775,37 @@ if __name__ == '__main__':
             cdna_db = SequenceDB(index_by='transcript', sequence_type='cdna', restrict_to=transcripts_to_load)
             if cache == 'save':
                 with open(cache_name, 'wb') as f:
-                    pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
+                    #pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(variants_by_gene, f, protocol=pickle.HIGHEST_PROTOCOL)
                 o.print('variants data saved to cache')
 
-        # tego będę używać
-        #cna = CompleteCNA2('cosmic/CosmicCompleteCNA.tsv', restrict_to=transcripts_to_load)
-        # to tylko chwilowe:
-        cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv.sorted.gz')
 
-        summarize(variants_by_gene, cds_db, cdna_db, cna)
+        variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(cds_db, cdna_db)
+
+        from cna_by_transcript import CompleteCNA, CosmicMappings
+        cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv', restrict_to=cosmic_genes_to_load)
+
+        cosmic_mappings = CosmicMappings()
+        ensembl_transcripts = [cosmic_mappings.transcript_by_gene(gene) for gene in cosmic_genes_to_load]
+
+        transcripts = BiomartData(
+            dataset=BiomartDataset(BIOMART_URL, name='hsapiens_gene_ensembl'),
+            attributes=['ensembl_transcript_id', '3_utr_end', '3_utr_start', '5_utr_start', '5_utr_end'],
+            filters={'ensembl_transcript_id': ensembl_transcripts, 'upstream_flank': 1},
+            fasta=True)
+
+        transcripts_positions = {}
+        for transcript in transcripts:
+            """
+            if transcript.ensembl_transcript_id == 'ENST00000392676':
+                print(transcript)
+            transcripts_positions[transcript.ensembl_transcript_id] = (transcript.transcript_start, transcript.transcript_end)
+            """
+            print(transcript)
+            print('---')
+        # jeśli jestem na nici +1 to biorę: 3‘UTR Start -1, max(5‘ UTR End) +1
+        # jeśli jestem na nici -1 to biorę: min(5'UTR Start) -1 i 3'UTR End +1
+        # * są oddzielone średnikami
+
+        summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings)
 

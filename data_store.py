@@ -3,8 +3,15 @@ class DataStore(object):
     """When inheriting from DataStore, make sure you are implementing
     'attributes' list in your __init__ function.
     """
-    def __init__(self, attributes):
+    def __init__(self, attributes, data, iterator=None, single_rows=True):
         self.attributes = attributes
+        self.data = data
+        self.prev = ''
+        self.single_rows = single_rows
+        if iterator:
+            self.iterator = iterator
+        else:
+            self.iterator = self.data.__iter__
 
     def pos(self, attribute):
         try:
@@ -12,8 +19,26 @@ class DataStore(object):
         except ValueError:
             raise KeyError
 
-    def parse_row(self, row):
-        return DataRow(self, row)
+    def parse_entry(self, entry):
+        if self.single_rows:
+            return DataRow(self, entry)
+        else:
+            return entry
+
+    def __iter__(self):
+        return self
+
+    def is_ready_to_flush(self, data):
+        return True
+
+    def next(self):
+        rows = [self.iterator.next()]
+        prev = self.prev
+        while not self.is_ready_to_flush(rows) or not prev:
+            prev = self.iterator.next()
+            rows += [prev]
+        parsed = self.parse_entry(self.prev + ''.join(rows[:-1]))
+        return parsed
 
 
 class DataRow(object):
