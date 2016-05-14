@@ -384,7 +384,7 @@ def parse_variants(cds_db, cdna_db):
         for variant in variants:
             analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl)
 
-        # Remove variants with non-complete data 
+        # Remove variants with non-complete data
         correct_variants = filter(lambda variant: variant.correct, variants)
 
         cosmic_genes_to_load.update([variant.vcf_data.INFO['GENE'] for variant in correct_variants])
@@ -684,7 +684,7 @@ if __name__ == '__main__':
             pos = (start + 1, end - 1)
 
             transcripts_positions[transcript_id] = pos
-            o.outdent()
             o.print('Position:', pos)
+            o.outdent()
 
         summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings)
