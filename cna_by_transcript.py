@@ -28,7 +28,6 @@ class CompleteCNA(object):
     def __init__(self, path, restrict_to=None, include_all=False):
         """
         include_all: if False - use 'high value (numeric)', else use 'all' mode
-
         """
         """
         Header:
@@ -72,19 +71,6 @@ class CompleteCNA(object):
 
                 chrom, cords = split(line[19], ':')
                 start, end = split(cords, '..')
-
-                # gain = gain_loss[line[gain_col]]
-
-                """
-                try:
-                    total_cn = int(line[14])
-                except ValueError:
-                    try:
-                        total_cn = float(line[14])
-                    except ValueError:
-                        pass
-                    total_cn = 0
-                """
 
                 if line[16] == 'GAIN':
                     gain = True

@@ -3,6 +3,7 @@
 
 from __future__ import print_function
 
+DATASET = 'hsapiens_snp_som'
 BIOMART_URL = 'http://www.ensembl.org/biomart'
 """
 Mirrors:
@@ -10,25 +11,18 @@ Mirrors:
     useast.ensembl.org
     asia.ensembl.org
 """
-DATASET = 'hsapiens_snp_som'
 
-#pip install pyvcf pysam biomart
+# pip install pyvcf pysam biomart
 import vcf
-# pysam is required too
-import sys, os
-better_biomart_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
-sys.path.insert(0, better_biomart_path)
+import sys
 
 from poly_a import has_poly_a
 from fasta_sequence_db import SequenceDB, FastSequenceDB
 from output_formatter import OutputFormatter
-from data_store import DataStore
 from copy_number_map import CopyNumberMap
-
+from biomart_data import BiomartData, BiomartDataset
 
 o = OutputFormatter()
-
-from biomart import BiomartDataset
 
 
 def inspect(obj):
@@ -44,56 +38,12 @@ def inspect(obj):
     o.outdent()
 
 
-class BiomartSequence(object):
-
-    def __init__(self, entry, attributes):
-        entry = entry.split('\n')
-        self.header = entry[0].lstrip('>')
-        self.sequence = entry[1:]
-
-
-class BiomartData(DataStore):
-
-    def __init__(self, attributes, filters, dataset=None, fasta=False):
-        self.attributes = attributes
-        self.filters = filters
-        if not dataset:
-            dataset = BiomartDataset(BIOMART_URL, name=DATASET)
-        self.dataset = dataset
-
-        self.fasta = fasta
-
-        #either I do not understand how to force biomart to give the header data or it does not work.
-        #response = self.fetch_data(header=1)
-        #print(response.text)
-        data = self.fetch_data()
-        iterator = data.iter_lines()
-
-
-        super(BiomartData, self).__init__(attributes, data, iterator, single_rows=not fasta)
-
-    def parse_multi(self, entry):
-        return BiomartSequence(entry, self.attributes)
-
-    def is_ready_to_flush(self, rows):
-        if self.fasta:
-            return filter(bool, [row.startswith('>') for row in rows])
-        else:
-            return True
-
-    def fetch_data(self, header=0):
-        return self.dataset.search({
-            'filters': self.filters,
-            'attributes': [unicode(x) for x in self.attributes]
-            }, formatter='FASTA' if self.fasta else 'TSV', header=header)
-
-    def count(self):
-        return self.dataset.count()
-
-
 class VariantsData(BiomartData):
 
     def __init__(self, dataset=None, attributes=None, filters=None):
+
+        if not dataset:
+            dataset = BiomartDataset(BIOMART_URL, name=DATASET)
 
         if attributes is None:
             attributes = []
@@ -140,7 +90,7 @@ class VariantsData(BiomartData):
                     'coding_sequence_variant'
                 ]
         })
-        super(self.__class__, self).__init__(attributes, filters, dataset)
+        super(self.__class__, self).__init__(dataset, attributes, filters)
 
 
 def show_pos_with_context(seq, start, end):
@@ -354,13 +304,9 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
     if not vcf_data:
         o.unmute()
-        o.print('Lack of variant data! Abort!')
-        o.print(variant.refsnp_id)
-        # eg:
-        # cancer.sanger.ac.uk/cosmic/mutation/overview?id=250006
-        # cancer.sanger.ac.uk/cosmic/mutation/overview?id=4967608
+        o.print('Lack of VCF data for', variant.refsnp_id, 'variant. Skipping')
+        # eg: cancer.sanger.ac.uk/cosmic/mutation/overview?id=4967608
         variant.correct = False
-        # ustalenie: pomijać
 
         o.outdent()
         return False
@@ -482,6 +428,31 @@ def parse_variants(cds_db, cdna_db):
     return variants_by_gene_by_transcript, cosmic_genes_to_load
 
 
+def get_all_variants(variants_by_transcript):
+
+    unique_variants = []
+    unique_variants_keys = []
+
+    for gene_transcript_id, variants in variants_by_transcript.iteritems():
+        for variant in variants:
+            key = '\t'.join([
+                variant.chr_name,
+                variant.chrom_start,
+                variant.chrom_end,
+                variant.vcf_data.REF,
+                ''.join([str(n) for n in variant.vcf_data.ALT]),
+                variant.ensembl_gene_stable_id
+            ])
+            if key not in unique_variants_keys:
+                variant.affected_transcripts = [gene_transcript_id]
+                unique_variants.append(variant)
+                unique_variants_keys.append(key)
+            else:
+                variant.affected_transcripts += [gene_transcript_id]
+
+    return unique_variants
+
+
 def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings):
 
     cna_count = {}
@@ -532,27 +503,8 @@ def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
         # opcja pierwsza - traktuj wysztkie tak samo ale wyrzuć duplikaty
-        unique_variants = []
-        unique_variants_keys = []
+        variants = get_all_variants(variants_by_transcript)
 
-        for gene_transcript_id, variants in variants_by_transcript.iteritems():
-            # Loss of information here!
-            for variant in variants:
-                key = '\t'.join([
-                    variant.chr_name,
-                    variant.chrom_start,
-                    variant.chrom_end,
-                    variant.vcf_data.REF,
-                    ''.join([str(n) for n in variant.vcf_data.ALT]),
-                    variant.ensembl_gene_stable_id
-                ])
-                if key not in unique_variants_keys:
-                    unique_variants.append(variant)
-                    unique_variants_keys.append(key)
-
-        variants = unique_variants
-
-        # variants = linearize(variant_groups)
         # opcja druga - weź tylko grupę która odpowiada najdłuższemu transkryptowi:
         # variants = variant_group[] TODO TBD
         # opca trzecia - weź tylko grupę która odpowiada kanonicznemu transkryptowi
@@ -656,7 +608,6 @@ if __name__ == '__main__':
             o.print('Variants data loaded from cache')
         else:
             o.print('Parsing dataset:', DATASET)
-            # TODO: add CNA to dump and load
             variants_by_gene, variants_data = parse(100)
             transcripts_to_load = []
             for gene, variants in variants_by_gene.iteritems():
@@ -691,6 +642,10 @@ if __name__ == '__main__':
         ensembl_transcripts = [cosmic_mappings.transcript_by_gene(gene) for gene in cosmic_genes_to_load]
 
         transcripts = BiomartData(
+            dataset=BiomartDataset(
+                BIOMART_URL,
+                name='hsapiens_gene_ensembl'
+            ),
             attributes=[
                 'transcript_flank',
                 'ensembl_transcript_id',
@@ -704,10 +659,6 @@ if __name__ == '__main__':
                 'upstream_flank': '1',
                 'ensembl_transcript_id': ensembl_transcripts
             },
-            dataset=BiomartDataset(
-                BIOMART_URL,
-                name='hsapiens_gene_ensembl'
-            ),
             fasta=True
         )
 
