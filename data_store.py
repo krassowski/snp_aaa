@@ -76,6 +76,7 @@ class DataRow(object):
     """
 
     def __init__(self, parent, line):
+        assert line
         if not isinstance(line, list) and not isinstance(line, tuple):
             line = line.decode('utf-8').split('\t')
         self._data = line
@@ -99,13 +100,16 @@ class DataRow(object):
                 self._parent.attributes.append(k)
                 self.__setattr__(k, v)
             except IndexError:
-                while len(self._data) <= len(self._parent.attributes):
+                while len(self._data) < len(self._parent.attributes):
                     self._data.append(None)
                 self.__setattr__(k, v)
 
     def __repr__(self):
         buff = 'DataRow:\n\t'
-        data = [self.get_key(i) + ': ' + str(v) for i, v in enumerate(self._data)]
+        try:
+            data = [self.get_key(i) + ': ' + str(v) for i, v in enumerate(self._data)]
+        except IndexError as e:
+            raise e
         buff += '\n\t'.join(data)
 
         return buff
@@ -121,4 +125,3 @@ class DataRow(object):
 
     def set(self, k, v):
         return self.__setattr__(k, v)
-

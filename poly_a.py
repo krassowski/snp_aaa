@@ -7,7 +7,10 @@ def show_pos_with_context(seq, start, end):
     return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
 
 
-def has_poly_a(seq, start, end, minimal_length=12, allowed_mismatches=1, flanking=True):
+def has_poly_a(*args, **kwargs):
+    return poly_a(*args, **kwargs)[0]
+
+def poly_a(seq, start, end, minimal_length=12, allowed_mismatches=1, flanking=True):
 
     best_match = 0
     best_coords = None
@@ -52,7 +55,7 @@ def has_poly_a(seq, start, end, minimal_length=12, allowed_mismatches=1, flankin
 
     #print(best_coords)
     #print(seq[best_coords[0]:best_coords[1]])
-    return accepted
+    return accepted, best_match
 
 #Persolal genome project, 100 GP - możńa sprawdzic wspołwystępowanie
 

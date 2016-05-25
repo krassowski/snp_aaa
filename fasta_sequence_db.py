@@ -118,6 +118,11 @@ class SequenceDB(BasicSequenceDB):
 
 class FastSequenceDB(BasicSequenceDB):
 
+    """
+    This operates on chromosome files with all sequence continuous
+    without breakes or headers except the one in the first line.
+    """
+
     def __init__(self, id_type, sequence_type='dna', length=60):
 
         super(FastSequenceDB, self).__init__(sequence_type, id_type)

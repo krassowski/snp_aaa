@@ -2,6 +2,14 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
+import vcf
+import sys
+from poly_a import poly_a
+from fasta_sequence_db import SequenceDB, FastSequenceDB
+from output_formatter import OutputFormatter
+from biomart_data import BiomartData, BiomartDataset
+
+# pip install pyvcf pysam biomart
 
 DATASET = 'hsapiens_snp_som'
 BIOMART_URL = 'http://www.ensembl.org/biomart'
@@ -11,16 +19,6 @@ Mirrors:
     useast.ensembl.org
     asia.ensembl.org
 """
-
-# pip install pyvcf pysam biomart
-import vcf
-import sys
-
-from poly_a import has_poly_a
-from fasta_sequence_db import SequenceDB, FastSequenceDB
-from output_formatter import OutputFormatter
-from copy_number_map import CopyNumberMap
-from biomart_data import BiomartData, BiomartDataset
 
 o = OutputFormatter()
 
@@ -102,7 +100,7 @@ def gene_names_from_patacsdb_csv(how_many):
     count = 0
     with open('patacsdb_all.csv', 'r') as f:
         for line in f:
-            if count >= how_many:
+            if how_many and count >= how_many:
                 break
             count += 1
             if line:
@@ -111,7 +109,7 @@ def gene_names_from_patacsdb_csv(how_many):
     return genes
 
 
-def parse(how_many=250):
+def parse(how_many=False):
 
     genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many)
 
@@ -165,6 +163,9 @@ def ref_seq_len(src, ref):
 
 
 def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
+
+    offset = 20
+
     o.mute()
 
     o.print('Variant name:', variant.refsnp_id)
@@ -176,7 +177,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     transcript_id = variant.ensembl_transcript_stable_id
     strand = int(variant.ensembl_transcript_chrom_strand)
 
-    offset = 20
 
     o.print('Transcript', transcript_id)
     o.indent()
@@ -204,7 +204,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
     o.outdent()
     o.print('Ancestral allele: ' + variant.allele_1)
-    # Allele is usually not informative for cosmic sourced entries ('COSMIC_MUTATION')
+    # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
     o.print('Allele: ' + variant.allele)
     o.print('consequence_allele_string:' + variant.consequence_allele_string)
 
@@ -228,7 +228,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     pos[1] -= 1
     pos[2] -= 1
 
-    # and represent them as range (eg. if you had n:n pointing to a single base, use n:n+1)
+    # and represent them as range (if you had n:n pointing to a single base, use n:n+1)
     pos[2] += 1
 
     for src, seq in reference_seq.items():
@@ -258,6 +258,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
             if seq:
                 o.print(src, ':\t', show_pos_with_context(seq, offset, -offset))
 
+    variant.cds_cdna_inconsistent = False
     if reference_seq.get('cds', '') != reference_seq.get('cdna', ''):
         cdna_real_len = ref_seq_len('cdna', reference_seq)
         cds_real_len = ref_seq_len('cds', reference_seq)
@@ -310,6 +311,8 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
         o.outdent()
         return False
+    else:
+        variant.correct = True
 
     # o.print(record.num_called, record.call_rate, record.num_unknown)  # ZeroDivisionError ?
     # o.print(record.num_hom_ref, record.num_het, record.num_hom_alt)
@@ -318,22 +321,12 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     # o.print(record.is_monomorphic)
     # o.print(vcf_data)
 
-    alt = vcf_data.ALT
-
-    assert len(alt) == 1
-    alt = alt[0]
-
-    mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + 1:]
+    assert len(vcf_data.ALT) == 1
 
     variant.sequence = ref_seq
     variant.vcf_data = vcf_data
-    variant.has_poly_a = has_poly_a(ref_seq, offset, len(ref_seq) - offset)
-    variant.will_have_poly_a = has_poly_a(mutated_seq, offset, len(mutated_seq) - offset)
-    variant.poly_a_decrease = variant.has_poly_a > variant.will_have_poly_a
-    variant.poly_a_increase = variant.has_poly_a < variant.will_have_poly_a
-    variant.correct = True
 
-    o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
+    analyze_poly_a(variant, offset)
 
     o.unmute()
     o.outdent()
@@ -342,6 +335,22 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         exit()
 
     return True
+
+def analyze_poly_a(variant, offset):
+
+    ref_seq = variant.sequence
+    alt = variant.vcf_data.ALT
+    mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + 1:]
+    o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
+
+    has_aaa, before_len = poly_a(ref_seq, offset, len(ref_seq) - offset)
+    will_have, after_len = poly_a(mutated_seq, offset, len(mutated_seq) - offset)
+
+    variant.has_poly_a = has_aaa
+    variant.will_have_poly_a = will_have
+    variant.poly_aaa_before = before_len
+    variant.poly_aaa_after = after_len
+
 
 
 def parse_variants(cds_db, cdna_db, variants_by_gene):
@@ -441,53 +450,23 @@ def get_all_variants(variants_by_transcript):
                 variant.chrom_end,
                 variant.vcf_data.REF,
                 ''.join([str(n) for n in variant.vcf_data.ALT]),
-                variant.ensembl_gene_stable_id
+                variant.ensembl_gene_stable_id,
+                gene_transcript_id
             ])
             if key not in unique_variants_keys:
                 variant.affected_transcripts = [gene_transcript_id]
                 unique_variants.append(variant)
                 unique_variants_keys.append(key)
             else:
-                variant.affected_transcripts += [gene_transcript_id]
+                print(variant)
+                variant.affected_transcripts = variant.affected_transcripts + [gene_transcript_id]
 
     return unique_variants
 
 
-def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings):
+def summarize(variants_by_gene_by_transcript, cna):
 
-    cna_count = {}
-    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
-        cna_count[gene] = {}
-        for gene_transcript_id, variants in variants_by_transcript.iteritems():
-
-            cna_list = cna.get_by_gene_and_transcript(gene_transcript_id)
-
-            print(gene_transcript_id)
-
-            transcript = cosmic_mappings.transcript_by_gene(gene_transcript_id)
-            # współrzędne technicznie dobre ale inne niż cosmicowe :(
-            start, end = map(int, transcripts_positions[transcript])
-
-            gain = CopyNumberMap(start, end)
-            loss = CopyNumberMap(start, end)
-
-            for is_gain, s, e in cna_list:
-                if is_gain:
-                    gain.add(s, e)
-                else:
-                    loss.add(s, e)
-
-            gain.show()
-            loss.show()
-
-            cna_longest_gain = gain.get_longest()
-            cna_max_loss = loss.get_max()
-
-            print('Gain/loss', cna_longest_gain, cna_max_loss)
-
-            cna_count[gene][gene_transcript_id] = (cna_longest_gain, cna_max_loss)
-
-            print(cna_list)
+    # cosmic_mappings = CosmicMappings()
 
     genes_poly_aaa_increase = 0
     genes_poly_aaa_decrease = 0
@@ -499,15 +478,32 @@ def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic
     loss_in_constant = 0
     gain_in_constant = 0
     variants_count = 0
+    poly_a_related_cnt = 0
+
+    report = []
 
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
-        # opcja pierwsza - traktuj wysztkie tak samo ale wyrzuć duplikaty
+        expression = [0, 0, 0]
+        for gene_transcript_id, variants in variants_by_transcript.iteritems():
+
+            try:
+                expr = cna.get_by_gene_and_transcript(gene_transcript_id)
+                expression += expr
+            except KeyError:
+                # no expression data for this transcript
+                print('No expression data for', gene_transcript_id, 'available')
+                continue
+
+            print(gene_transcript_id)
+            print(expression, expr)
+
+        # opcja 1 - traktuj wysztkie tak samo ale wyrzuć duplikaty
         variants = get_all_variants(variants_by_transcript)
 
-        # opcja druga - weź tylko grupę która odpowiada najdłuższemu transkryptowi:
+        # opcja 2 - weź tylko grupę która odpowiada najdłuższemu transkryptowi:
         # variants = variant_group[] TODO TBD
-        # opca trzecia - weź tylko grupę która odpowiada kanonicznemu transkryptowi
+        # opca 3 - weź tylko grupę która odpowiada kanonicznemu transkryptowi
         # variants = variant_group['']
 
         variants_count += len(variants)
@@ -519,30 +515,39 @@ def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic
         poly_a_variants = filter(lambda variant: variant.has_poly_a, variants)
         poly_a_potential_variants = filter(lambda variant: variant.will_have_poly_a, variants)
 
-        #poly_a_constant = filter(lambda variant: not (variant.poly_a_increase or variant.poly_a_decrease), variants)
-        poly_a_increase = filter(lambda variant: variant.poly_a_increase, variants)
-        poly_a_decrease = filter(lambda variant: variant.poly_a_decrease, variants)
+        poly_a_related_cnt += len(poly_a_potential_variants) + len(poly_a_variants)
 
+        # loss of poly_aaa, decrease in length (-1 per residue)
+        decrease = 0
+        # gain of poly_aaa: , increase in length (+1 per residue)
+        increase = 0
+
+        for variant in poly_a_variants + poly_a_potential_variants:
+            if variant.poly_aaa_after > variant.poly_aaa_before:
+                increase += 1
+            elif variant.poly_aaa_after < variant.poly_aaa_before:
+                decrease += 1
+
+        assert increase >= len(poly_a_potential_variants) - len(poly_a_variants)
+
+        report += [(gene, expression[0], expression[2], increase, decrease)]
+
+        if increase > decrease:
+            genes_poly_aaa_increase += 1
+        elif increase < decrease:
+            genes_poly_aaa_decrease += 1
+        else:
+            genes_poly_aaa_constant += 1
+
+        """
         o.print('# of poly_a adjacent to variants:')
         o.indent()
         o.print('before mutations', len(poly_a_variants))
         o.print('after mutations', len(poly_a_potential_variants))
         o.outdent()
-        o.print('# of poly_a increase events', len(poly_a_increase))
-        o.print('# of poly_a decrease events', len(poly_a_decrease))
-
-        if len(poly_a_increase) > len(poly_a_decrease):
-            genes_poly_aaa_increase += 1
-            gain_in_increase += sum([x[0] for x in cna_count[gene].values()])
-            loss_in_increase += sum([x[1] for x in cna_count[gene].values()])
-        elif len(poly_a_increase) < len(poly_a_decrease):
-            genes_poly_aaa_decrease += 1
-            gain_in_decrease += sum([x[0] for x in cna_count[gene].values()])
-            loss_in_decrease += sum([x[1] for x in cna_count[gene].values()])
-        else:
-            genes_poly_aaa_constant += 1
-            gain_in_constant += sum([x[0] for x in cna_count[gene].values()])
-            loss_in_constant += sum([x[1] for x in cna_count[gene].values()])
+        o.print('# of poly_a increase events', len(increase))
+        o.print('# of poly_a decrease events', len(decrease))
+        """
 
         o.outdent()
 
@@ -550,12 +555,17 @@ def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic
 
     print('Analyzed genes:', gene_count)
     print('Analyzed variants:', variants_count)
+    print('poly_a related variants', variants_count)
 
     print('\nSummary for all genes:')
     print('\t\tCount\tCNV gain\tCNV loss')
     print('Decreased poly_aaa:', genes_poly_aaa_decrease, gain_in_decrease, loss_in_decrease)
     print('Increased poly_aaa:', genes_poly_aaa_increase, gain_in_increase, loss_in_increase)
     print('Constant poly_aaaa:', genes_poly_aaa_constant, gain_in_constant, loss_in_constant)
+
+    print('\n\nGene\t\t\tCNV+\tCNV-\tAAA+\tAAA-')
+    for line in report:
+        print('\t'.join(map(str, line)))
 
 
 def main(args):
@@ -600,56 +610,7 @@ def main(args):
             with open(cache_name + '-cna', 'wb') as f:
                 pickle.dump(cna, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    cosmic_mappings = CosmicMappings()
-    ensembl_transcripts = [cosmic_mappings.transcript_by_gene(gene) for gene in cosmic_genes_to_load]
-
-    transcripts = BiomartData(
-        dataset=BiomartDataset(
-            BIOMART_URL,
-            name='hsapiens_gene_ensembl'
-        ),
-        attributes=[
-            'transcript_flank',
-            'ensembl_transcript_id',
-            'strand',
-            '3_utr_start',
-            '3_utr_end',
-            '5_utr_start',
-            '5_utr_end'
-        ],
-        filters={
-            'upstream_flank': '1',
-            'ensembl_transcript_id': ensembl_transcripts
-        },
-        fasta=True
-    )
-
-    transcripts_positions = {}
-    for transcript in transcripts:
-        header_data = transcript.header.split('|')
-
-        transcript_id, strand = header_data[:2]
-        o.print(transcript.header)
-        o.indent()
-        coordinates = [map(int, c.split(';')) for c in header_data[2:]]
-        o.print('Coords:', coordinates)
-        start_3, end_3, start_5, end_5 = coordinates
-
-        if strand == '-1':
-            end = min(start_5)
-            start = max(end_3)
-        else:
-            end = min(start_3)
-            start = max(end_5)
-            assert strand == '1' or strand == '+1'
-
-        pos = (start + 1, end - 1)
-
-        transcripts_positions[transcript_id] = pos
-        o.print('Position:', pos)
-        o.outdent()
-
-    summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings)
+    summarize(variants_by_gene_by_transcript, cna)
 
 
 if __name__ == '__main__':
