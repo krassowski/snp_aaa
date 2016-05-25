@@ -344,7 +344,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     return True
 
 
-def parse_variants(cds_db, cdna_db):
+def parse_variants(cds_db, cdna_db, variants_by_gene):
 
     """
     vcf.parser uses 0-based coordinates:
@@ -558,6 +558,100 @@ def summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic
     print('Constant poly_aaaa:', genes_poly_aaa_constant, gain_in_constant, loss_in_constant)
 
 
+def main(args):
+    import cPickle as pickle
+
+    cache = args.cache
+    cache_name = '.cache'
+
+    if cache == 'load':
+        with open(cache_name, 'rb') as f:
+            variants_by_gene, cds_db, cdna_db = pickle.load(f)
+        o.print('Variants data loaded from cache')
+    else:
+        o.print('Parsing dataset:', DATASET)
+        variants_by_gene, variants_data = parse(100)
+        transcripts_to_load = []
+        for gene, variants in variants_by_gene.iteritems():
+            transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
+        transcripts_to_load = set(transcripts_to_load)
+        cds_db = SequenceDB(index_by='transcript', sequence_type='cds', restrict_to=transcripts_to_load)
+        cdna_db = SequenceDB(index_by='transcript', sequence_type='cdna', restrict_to=transcripts_to_load)
+        if cache == 'save':
+            # a little trick - the iterator is a generator which could
+            # not be dumped, but it is not necessary to store it at all
+            it = variants_data.iterator
+            variants_data.iterator = None
+            with open(cache_name, 'wb') as f:
+                pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
+            o.print('variants data saved to cache')
+            variants_data.iterator = it
+
+    variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(cds_db, cdna_db, variants_by_gene)
+    from cna_by_transcript import CompleteCNA, CosmicMappings
+
+    if cache == 'load':
+        with open(cache_name + '-cna', 'rb') as f:
+            cna = pickle.load(f)
+        o.print('CNA loaded from cache')
+    else:
+        cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv', restrict_to=cosmic_genes_to_load)
+        if cache == 'save':
+            with open(cache_name + '-cna', 'wb') as f:
+                pickle.dump(cna, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    cosmic_mappings = CosmicMappings()
+    ensembl_transcripts = [cosmic_mappings.transcript_by_gene(gene) for gene in cosmic_genes_to_load]
+
+    transcripts = BiomartData(
+        dataset=BiomartDataset(
+            BIOMART_URL,
+            name='hsapiens_gene_ensembl'
+        ),
+        attributes=[
+            'transcript_flank',
+            'ensembl_transcript_id',
+            'strand',
+            '3_utr_start',
+            '3_utr_end',
+            '5_utr_start',
+            '5_utr_end'
+        ],
+        filters={
+            'upstream_flank': '1',
+            'ensembl_transcript_id': ensembl_transcripts
+        },
+        fasta=True
+    )
+
+    transcripts_positions = {}
+    for transcript in transcripts:
+        header_data = transcript.header.split('|')
+
+        transcript_id, strand = header_data[:2]
+        o.print(transcript.header)
+        o.indent()
+        coordinates = [map(int, c.split(';')) for c in header_data[2:]]
+        o.print('Coords:', coordinates)
+        start_3, end_3, start_5, end_5 = coordinates
+
+        if strand == '-1':
+            end = min(start_5)
+            start = max(end_3)
+        else:
+            end = min(start_3)
+            start = max(end_5)
+            assert strand == '1' or strand == '+1'
+
+        pos = (start + 1, end - 1)
+
+        transcripts_positions[transcript_id] = pos
+        o.print('Position:', pos)
+        o.outdent()
+
+    summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings)
+
+
 if __name__ == '__main__':
 
     import argparse
@@ -567,8 +661,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Find SNPs')
     parser.add_argument('--show', choices=to_show, default=None)
     parser.add_argument('--cache', choices=cache_actions, default=None)
+    parser.add_argument('--profile', action='store_true')
 
-    subcommands = ['show', 'cache']
+    subcommands = ['show', 'cache', 'profile']
     arguments = ['--' + a if a in subcommands else a for a in sys.argv[1:]]
 
     args = parser.parse_args(arguments)
@@ -597,94 +692,9 @@ if __name__ == '__main__':
             gene, variants = variants_by_gene.popitem()
             print(variants[0])
     else:
-        import cPickle as pickle
 
-        cache = args.cache
-        cache_name = '.cache'
-
-        if cache == 'load':
-            with open(cache_name, 'rb') as f:
-                variants_by_gene, cds_db, cdna_db = pickle.load(f)
-            o.print('Variants data loaded from cache')
+        if args.profile:
+            import profile
+            profile.run('main(args)')
         else:
-            o.print('Parsing dataset:', DATASET)
-            variants_by_gene, variants_data = parse(100)
-            transcripts_to_load = []
-            for gene, variants in variants_by_gene.iteritems():
-                transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
-            transcripts_to_load = set(transcripts_to_load)
-            cds_db = SequenceDB(index_by='transcript', sequence_type='cds', restrict_to=transcripts_to_load)
-            cdna_db = SequenceDB(index_by='transcript', sequence_type='cdna', restrict_to=transcripts_to_load)
-            if cache == 'save':
-                # a little trick - the iterator is a generator which could
-                # not be dumped, but it is not necessary to store it at all
-                it = variants_data.iterator
-                variants_data.iterator = None
-                with open(cache_name, 'wb') as f:
-                    pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
-                o.print('variants data saved to cache')
-                variants_data.iterator = it
-
-        variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(cds_db, cdna_db)
-        from cna_by_transcript import CompleteCNA, CosmicMappings
-
-        if cache == 'load':
-            with open(cache_name + '-cna', 'rb') as f:
-                cna = pickle.load(f)
-            o.print('CNA loaded from cache')
-        else:
-            cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv', restrict_to=cosmic_genes_to_load)
-            if cache == 'save':
-                with open(cache_name + '-cna', 'wb') as f:
-                    pickle.dump(cna, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-        cosmic_mappings = CosmicMappings()
-        ensembl_transcripts = [cosmic_mappings.transcript_by_gene(gene) for gene in cosmic_genes_to_load]
-
-        transcripts = BiomartData(
-            dataset=BiomartDataset(
-                BIOMART_URL,
-                name='hsapiens_gene_ensembl'
-            ),
-            attributes=[
-                'transcript_flank',
-                'ensembl_transcript_id',
-                'strand',
-                '3_utr_start',
-                '3_utr_end',
-                '5_utr_start',
-                '5_utr_end'
-            ],
-            filters={
-                'upstream_flank': '1',
-                'ensembl_transcript_id': ensembl_transcripts
-            },
-            fasta=True
-        )
-
-        transcripts_positions = {}
-        for transcript in transcripts:
-            header_data = transcript.header.split('|')
-
-            transcript_id, strand = header_data[:2]
-            o.print(transcript.header)
-            o.indent()
-            coordinates = [map(int, c.split(';')) for c in header_data[2:]]
-            o.print('Coords:', coordinates)
-            start_3, end_3, start_5, end_5 = coordinates
-
-            if strand == '-1':
-                end = min(start_5)
-                start = max(end_3)
-            else:
-                end = min(start_3)
-                start = max(end_5)
-                assert strand == '1' or strand == '+1'
-
-            pos = (start + 1, end - 1)
-
-            transcripts_positions[transcript_id] = pos
-            o.print('Position:', pos)
-            o.outdent()
-
-        summarize(variants_by_gene_by_transcript, cna, transcripts_positions, cosmic_mappings)
+            main(args)
