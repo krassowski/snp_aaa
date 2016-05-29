@@ -8,13 +8,13 @@ from poly_a import poly_a
 from fasta_sequence_db import SequenceDB, FastSequenceDB
 from output_formatter import OutputFormatter
 from biomart_data import BiomartData, BiomartDataset
+from cna_by_transcript import CompleteCNA
 
 # pip install pyvcf pysam biomart
 
 DATASET = 'hsapiens_snp_som'
 BIOMART_URL = 'http://www.ensembl.org/biomart'
-"""
-Mirrors:
+"""Mirrors:
     uswest.ensembl.org
     useast.ensembl.org
     asia.ensembl.org
@@ -23,17 +23,10 @@ Mirrors:
 o = OutputFormatter()
 
 
-def inspect(obj):
-    """
-    Just for debugging and exploration
-    """
-    o.print(obj)
-    o.indent()
-    o.print(type(obj))
-    for k, v in obj.__dict__.items():
-        o.print(k, v)
-    o.print(dir(obj))
-    o.outdent()
+class SNPDataset(BiomartDataset):
+
+    def __init__(self):
+        super(SNPDataset, self).__init__(BIOMART_URL, name=DATASET)
 
 
 class VariantsData(BiomartData):
@@ -41,7 +34,7 @@ class VariantsData(BiomartData):
     def __init__(self, dataset=None, attributes=None, filters=None):
 
         if not dataset:
-            dataset = BiomartDataset(BIOMART_URL, name=DATASET)
+            dataset = SNPDataset()
 
         if attributes is None:
             attributes = []
@@ -58,25 +51,25 @@ class VariantsData(BiomartData):
             'allele_1',  # Ancestral allele
             'minor_allele',
             'chrom_strand',
-            'validated',
-            'minor_allele_freq',
-            'minor_allele_count',
-            'variation_names',
+            # 'validated',
+            # 'minor_allele_freq',
+            # 'minor_allele_count',
+            # 'variation_names',
             'phenotype_description',
             'set_name',
             'set_description',
-            'clinical_significance',
-            'refsnp_source_description',
+            # 'clinical_significance',
+            # 'refsnp_source_description',
             'cdna_start',
             'cdna_end',
-            'consequence_type_tv',
+            # 'consequence_type_tv',
             'ensembl_gene_stable_id',
             'ensembl_transcript_stable_id',
             'ensembl_transcript_chrom_strand',
             'cds_start',
-            'cds_end',
-            'consequence_type_tv',
-            'consequence_allele_string'
+            'cds_end'
+            # 'consequence_type_tv',
+            # 'consequence_allele_string'
         ]
 
         filters.update({
@@ -96,7 +89,8 @@ def show_pos_with_context(seq, start, end):
 
 
 def gene_names_from_patacsdb_csv(how_many):
-    genes = []
+
+    genes = set()
     count = 0
     with open('patacsdb_all.csv', 'r') as f:
         for line in f:
@@ -105,55 +99,58 @@ def gene_names_from_patacsdb_csv(how_many):
             count += 1
             if line:
                 data = [x.strip() for x in line.split(',')]
-                genes.append(data[1])
-    return genes
+                genes.add(data[1])
+
+    return list(genes)
 
 
 def parse(how_many=False):
 
     genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many)
 
-    filters = {
-        'ensembl_gene': genes_from_patacsdb
-    }
-
-    variants = VariantsData(filters=filters)
-
     variants_by_gene = {}
 
     previous_id = None
 
-    # Those attributes are only part that changes acros 'duplicated'
-    # records returned by ensembl's biomart for a given mutation.
-    # To avoid redundancy I am assembling all redundant entries into
-    # single one, grouped by refsnp_id (in case of cosmic mutations,
-    # the cosmic id is stored inside this field). Attributes that are
-    # chaning acros 'duplicated' entries are sotred in a list so no
-    # information is lost. Nontheless this does not reselve all the
-    # issues with redundancy of retrived data - some are processed later.
-    redundant_attrs = ['phenotype_description', 'set_name', 'set_description']
+    for start in range(0, len(genes_from_patacsdb), 300):
 
-    # I assert that two redundant entires comes always one after another.
-    for variant in variants:
+        filters = {'ensembl_gene': genes_from_patacsdb[start:start + 300]}
 
-        gene = variant.ensembl_gene_stable_id
+        variants = VariantsData(filters=filters)
 
-        assert variant.refsnp_id
+        # Those attributes are only part that changes acros 'duplicated'
+        # records returned by ensembl's biomart for a given mutation.
+        # To avoid redundancy I am assembling all redundant entries into
+        # single one, grouped by refsnp_id (in case of cosmic mutations,
+        # the cosmic id is stored inside this field). Attributes that are
+        # chaning acros 'duplicated' entries are sotred in a list so no
+        # information is lost. Nontheless this does not reselve all the
+        # issues with redundancy of retrived data - some are processed later.
+        redundant_attrs = ['phenotype_description', 'set_name', 'set_description']
 
-        if variant.refsnp_id == previous_id:
-            last = variants_by_gene[gene][-1]
-            assert previous_id == last.refsnp_id
-            for attr in redundant_attrs:
-                last.get(attr).append(variant.get(attr))
-        else:
-            for attr in redundant_attrs:
-                variant.set(attr, [variant.get(attr)])
-            if gene not in variants_by_gene:
-                variants_by_gene[gene] = []
-            variants_by_gene[gene].append(variant)
-            previous_id = variant.refsnp_id
+        # I assert that two redundant entires comes always one after another.
+        for variant in variants:
 
-    return variants_by_gene, variants
+            gene = variant.ensembl_gene_stable_id
+
+            assert variant.refsnp_id
+
+            if variant.refsnp_id == previous_id:
+                last = variants_by_gene[gene][-1]
+                assert previous_id == last.refsnp_id
+                for attr in redundant_attrs:
+                    last.get(attr).append(variant.get(attr))
+            else:
+                for attr in redundant_attrs:
+                    variant.set(attr, [variant.get(attr)])
+                if gene not in variants_by_gene:
+                    variants_by_gene[gene] = []
+                variants_by_gene[gene].append(variant)
+                previous_id = variant.refsnp_id
+
+        variants.iterator = None
+
+    return variants_by_gene
 
 
 def ref_seq_len(src, ref):
@@ -161,30 +158,67 @@ def ref_seq_len(src, ref):
         return 0
     return len(ref[src].strip('-'))
 
+def inspect(obj):
+    """
+    Just for debugging and exploration
+    """
+    o.unmute()
+    o.print(obj)
+    o.indent()
+    o.print(type(obj))
+    for k, v in obj.__dict__.items():
+        o.print(k, v)
+    o.print(dir(obj))
+    o.outdent()
+
+
+def get_vcf_by_variant(vcf, pos, variant):
+
+    if variant.refsnp_source == 'COSMIC':
+        record_id = variant.refsnp_id
+    else:
+
+        data = BiomartData(
+            dataset=BiomartDataset(BIOMART_URL, name='hsapiens_gene_ensembl'),
+            attributes=['hgnc_symbol'],
+            filters={
+                'ensembl_transcript_id': variant.ensembl_transcript_stable_id
+            }
+        )
+
+        name = list(data)[0].hgnc_symbol
+
+        allele = variant.allele.replace('/', '>')
+        record_id = ''.join([name, ':c.', variant.cds_start, allele])
+
+    return get_vcf_by_id(vcf, pos, record_id)
+
+
+def get_vcf_by_id(vcf, pos, record_id):
+
+    vcf_data = None
+
+    for record in vcf.fetch(*pos):
+        if record.ID == record_id:
+            vcf_data = record
+            break
+
+    return vcf_data
+
 
 def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
     offset = 20
 
     o.mute()
-
     o.print('Variant name:', variant.refsnp_id)
-    o.indent()
 
-    # gene_id = variant.ensembl_gene_stable_id
-
-    # trasnscript is a transcript of a gene (reference), not of the variant!
     transcript_id = variant.ensembl_transcript_stable_id
     strand = int(variant.ensembl_transcript_chrom_strand)
 
-
-    o.print('Transcript', transcript_id)
-    o.indent()
-
     if variant.refsnp_source != 'COSMIC':
-        o.unmute()
-    o.print(variant.consequence_type_tv)
-    o.print('strand:', strand)
+        print('Found variant', variant.refsnp_id,
+              'from source other than COSMIC:', variant.refsnp_source)
 
     reference_nuc = {}
     reference_seq = {}
@@ -192,7 +226,16 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     for db in [cdna_db, cds_db]:
         src = db.sequence_type
 
-        start, end = variant.get(src + '_start'), variant.get(src + '_end')
+        try:
+            start, end = variant.get(src + '_start'), variant.get(src + '_end')
+        except IndexError as e:
+            print('Skiping variant:', variant.refsnp_id, 'in context of',
+                  transcript_id, 'lack of cds coordinates')
+            variant.correct = False
+            return False
+
+            raise e
+
         seq = db.fetch(transcript_id, strand, start, end, offset)
 
         if not db.has(transcript_id) or not seq:
@@ -202,11 +245,10 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         reference_nuc[src] = seq[offset:-offset]
         reference_seq[src] = seq
 
-    o.outdent()
-    o.print('Ancestral allele: ' + variant.allele_1)
+    # o.print('Ancestral allele: ' + variant.allele_1)
     # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
-    o.print('Allele: ' + variant.allele)
-    o.print('consequence_allele_string:' + variant.consequence_allele_string)
+    # o.print('Allele: ' + variant.allele)
+    # o.print('consequence_allele_string:' + variant.consequence_allele_string)
 
     reference_nuc['biomart (ancestral)'] = variant.allele_1
 
@@ -222,7 +264,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     reference_nuc['genome'] = seq[offset:-offset]
     reference_seq['genome'] = seq
 
-    o.print('Chromosomal position: {0}:{1}-{2}'.format(*pos))
+    # o.print('Chromosomal position: {0}:{1}-{2}'.format(*pos))
 
     # to get to vcf stored data by vcf reader, change coordinates to 0-based
     pos[1] -= 1
@@ -234,7 +276,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     for src, seq in reference_seq.items():
         if not seq:
             del reference_seq[src]
-            o.print('Lack of reference sequence in ' + src)
+            # o.print('Lack of reference sequence in ' + src)
 
     temp_ref_seq = reference_seq['genome']
     consistent = True
@@ -252,7 +294,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
             consistent = False
 
     if not consistent:
-        # TODO: skip?
         o.print('Reference sequences are not consistent:')
         for src, seq in reference_seq.items():
             if seq:
@@ -281,7 +322,8 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
             o.print('cds and cdna of different length')
             variant.cds_cdna_inconsistent = True
 
-    if ref_seq_len('cds', reference_seq) >= ref_seq_len('cdna', reference_seq) and ref_seq_len('cds', reference_seq):
+    if (ref_seq_len('cds', reference_seq) >= ref_seq_len('cdna', reference_seq) and
+            ref_seq_len('cds', reference_seq)):
         ref_seq = reference_seq['cds']
         o.print('Chosing cds sequence as reference')
     elif ref_seq_len('cdna', reference_seq):
@@ -291,55 +333,36 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         ref_seq = reference_seq['genome']
         o.print('Chosing genome sequence as reference')
 
+    variant.sequence = ref_seq
     o.print('Context: ' + show_pos_with_context(ref_seq, offset, -offset))
 
     main_vcf = vcf_cosmic if variant.refsnp_source == 'COSMIC' else vcf_ensembl
 
-    vcf_data = None
-
-    for record in main_vcf.fetch(*pos):
-
-        if record.ID == variant.refsnp_id:
-            vcf_data = record
-            break
+    vcf_data = get_vcf_by_variant(main_vcf, pos, variant)
 
     if not vcf_data:
-        o.unmute()
-        o.print('Lack of VCF data for', variant.refsnp_id, 'variant. Skipping')
-        # eg: cancer.sanger.ac.uk/cosmic/mutation/overview?id=4967608
+        print('Lack of VCF data for', variant.refsnp_id, 'variant. Skipping')
         variant.correct = False
-
-        o.outdent()
         return False
     else:
         variant.correct = True
 
-    # o.print(record.num_called, record.call_rate, record.num_unknown)  # ZeroDivisionError ?
-    # o.print(record.num_hom_ref, record.num_het, record.num_hom_alt)
-    # o.print(record.nucl_diversity, record.aaf, record.heterozygosity)  # ZeroDivisionError ?
-    # o.print(record.is_snp, record.is_indel, record.is_transition, record.is_deletion)
-    # o.print(record.is_monomorphic)
-    # o.print(vcf_data)
-
     assert len(vcf_data.ALT) == 1
-
-    variant.sequence = ref_seq
     variant.vcf_data = vcf_data
+
+    variant.alt = str(vcf_data.ALT)
 
     analyze_poly_a(variant, offset)
 
     o.unmute()
-    o.outdent()
-
-    if variant.allele != 'COSMIC_MUTATION':
-        exit()
 
     return True
+
 
 def analyze_poly_a(variant, offset):
 
     ref_seq = variant.sequence
-    alt = variant.vcf_data.ALT
+    alt = variant.alt
     mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + 1:]
     o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
 
@@ -352,7 +375,6 @@ def analyze_poly_a(variant, offset):
     variant.poly_aaa_after = after_len
 
 
-
 def parse_variants(cds_db, cdna_db, variants_by_gene):
 
     """
@@ -362,7 +384,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
     http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
     """
 
-    chromosomes = map(str, range(1, 23)) + ['X', 'Y']
+    chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
 
     dna_db = {}
     for chromosome in chromosomes:
@@ -386,7 +408,8 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
         # Just to be certain
         variants_unique_ids = set(variant.refsnp_id for variant in variants)
-        assert len(variants_unique_ids) == len(variants)
+        if len(variants_unique_ids) != len(variants):
+            raise Exception('Less unique ids than variants!')
 
         all_variants_count += len(variants)
 
@@ -395,6 +418,13 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
         # Remove variants with non-complete data
         correct_variants = filter(lambda variant: variant.correct, variants)
+
+        # Remove variants from source other than COSMIC (later I am processing
+        # cosmic-specific data so db_snp variants are not relevant here)
+        correct_variants = filter(
+            lambda variant: variant.refsnp_source == 'COSMIC',
+            list(correct_variants)
+        )
 
         cosmic_genes_to_load.update([variant.vcf_data.INFO['GENE'] for variant in correct_variants])
 
@@ -411,18 +441,6 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
 
             gene_transcript_id = variant.vcf_data.INFO['GENE']
-            """
-            chunks = gene_transcript_id.split('_')
-            if len(chunks) > 1:
-                transcript_id = chunks[1]
-                # just in case to detect potential ambuguity
-                assert len(chunks) == 2
-            else:
-                # leave it empty, but the best guess is that it is the
-                # canonical transcript, accesible from 'variant' object
-                # transcript_id = variant.ensembl_transcript_stable_id
-                transcript_id = ''
-            """
             transcript_id = gene_transcript_id
 
             try:
@@ -437,10 +455,21 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
     return variants_by_gene_by_transcript, cosmic_genes_to_load
 
 
-def get_all_variants(variants_by_transcript):
+def report(name, data, comment=None):
+    if not data:
+        return
+    with open('reports/' + name.replace(' ', '_') + '.txt', 'w') as f:
+        f.write('# ' + name + '\n')
+        if comment:
+            f.write('#' + comment + '\n')
+        f.write('\n'.join(data))
+    print('Created report "' + name + '" with', len(data), 'entries')
 
-    unique_variants = []
-    unique_variants_keys = []
+
+def get_all_variants(variants_by_transcript, gene):
+
+    unique_variants = {}
+    duplicated = set()
 
     for gene_transcript_id, variants in variants_by_transcript.iteritems():
         for variant in variants:
@@ -449,38 +478,32 @@ def get_all_variants(variants_by_transcript):
                 variant.chrom_start,
                 variant.chrom_end,
                 variant.vcf_data.REF,
-                ''.join([str(n) for n in variant.vcf_data.ALT]),
+                ','.join([str(n) for n in variant.vcf_data.ALT]),
                 variant.ensembl_gene_stable_id,
                 gene_transcript_id
             ])
-            if key not in unique_variants_keys:
-                variant.affected_transcripts = [gene_transcript_id]
-                unique_variants.append(variant)
-                unique_variants_keys.append(key)
+            if key not in unique_variants.keys():
+                variant.affected_transcripts = set(gene_transcript_id)
+                unique_variants[key] = variant
             else:
-                print(variant)
-                variant.affected_transcripts = variant.affected_transcripts + [gene_transcript_id]
+                unique_variants[key].affected_transcripts.add(gene_transcript_id)
+                stored_variant = unique_variants[key]
+                duplicated.update(variant.refsnp_id, stored_variant.refsnp_id)
 
-    return unique_variants
+    report('Duplicated records for gene: ' + gene, duplicated)
+
+    return unique_variants.values()
 
 
 def summarize(variants_by_gene_by_transcript, cna):
 
-    # cosmic_mappings = CosmicMappings()
-
-    genes_poly_aaa_increase = 0
-    genes_poly_aaa_decrease = 0
-    genes_poly_aaa_constant = 0
-    gain_in_increase = 0
-    loss_in_increase = 0
-    gain_in_decrease = 0
-    loss_in_decrease = 0
-    loss_in_constant = 0
-    gain_in_constant = 0
     variants_count = 0
-    poly_a_related_cnt = 0
+    poly_a_related_variants_count = 0
 
-    report = []
+    to_report = []
+    import operator
+
+    no_expression = set()
 
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
@@ -489,40 +512,32 @@ def summarize(variants_by_gene_by_transcript, cna):
 
             try:
                 expr = cna.get_by_gene_and_transcript(gene_transcript_id)
-                expression += expr
+                expression = map(operator.add, expression, expr)
             except KeyError:
                 # no expression data for this transcript
-                print('No expression data for', gene_transcript_id, 'available')
+                no_expression.add(gene_transcript_id)
                 continue
 
-            print(gene_transcript_id)
-            print(expression, expr)
-
-        # opcja 1 - traktuj wysztkie tak samo ale wyrzuć duplikaty
-        variants = get_all_variants(variants_by_transcript)
-
-        # opcja 2 - weź tylko grupę która odpowiada najdłuższemu transkryptowi:
-        # variants = variant_group[] TODO TBD
-        # opca 3 - weź tylko grupę która odpowiada kanonicznemu transkryptowi
-        # variants = variant_group['']
+        # Treat all variants the same way - just remove duplicates
+        variants = get_all_variants(variants_by_transcript, gene)
 
         variants_count += len(variants)
 
-        o.print(gene)
-        o.indent()
-        o.print('Total:', len(variants))
+        o.print(gene, 'with its', len(variants), 'variants analysed')
 
         poly_a_variants = filter(lambda variant: variant.has_poly_a, variants)
         poly_a_potential_variants = filter(lambda variant: variant.will_have_poly_a, variants)
-
-        poly_a_related_cnt += len(poly_a_potential_variants) + len(poly_a_variants)
 
         # loss of poly_aaa, decrease in length (-1 per residue)
         decrease = 0
         # gain of poly_aaa: , increase in length (+1 per residue)
         increase = 0
 
-        for variant in poly_a_variants + poly_a_potential_variants:
+        poly_a_related_variants = list(poly_a_variants + poly_a_potential_variants)
+        poly_a_related_variants_count += len(poly_a_related_variants)
+
+        # give scores for length increase
+        for variant in poly_a_related_variants:
             if variant.poly_aaa_after > variant.poly_aaa_before:
                 increase += 1
             elif variant.poly_aaa_after < variant.poly_aaa_before:
@@ -530,42 +545,19 @@ def summarize(variants_by_gene_by_transcript, cna):
 
         assert increase >= len(poly_a_potential_variants) - len(poly_a_variants)
 
-        report += [(gene, expression[0], expression[2], increase, decrease)]
+        to_report += [(gene, expression[0], expression[2], increase, decrease)]
 
-        if increase > decrease:
-            genes_poly_aaa_increase += 1
-        elif increase < decrease:
-            genes_poly_aaa_decrease += 1
-        else:
-            genes_poly_aaa_constant += 1
-
-        """
-        o.print('# of poly_a adjacent to variants:')
-        o.indent()
-        o.print('before mutations', len(poly_a_variants))
-        o.print('after mutations', len(poly_a_potential_variants))
-        o.outdent()
-        o.print('# of poly_a increase events', len(increase))
-        o.print('# of poly_a decrease events', len(decrease))
-        """
-
-        o.outdent()
+    report('No expression data for some transcripts', no_expression)
 
     gene_count = len(variants_by_gene_by_transcript)
 
     print('Analyzed genes:', gene_count)
     print('Analyzed variants:', variants_count)
-    print('poly_a related variants', variants_count)
+    print('poly_a related variants', poly_a_related_variants_count)
 
-    print('\nSummary for all genes:')
-    print('\t\tCount\tCNV gain\tCNV loss')
-    print('Decreased poly_aaa:', genes_poly_aaa_decrease, gain_in_decrease, loss_in_decrease)
-    print('Increased poly_aaa:', genes_poly_aaa_increase, gain_in_increase, loss_in_increase)
-    print('Constant poly_aaaa:', genes_poly_aaa_constant, gain_in_constant, loss_in_constant)
-
-    print('\n\nGene\t\t\tCNV+\tCNV-\tAAA+\tAAA-')
-    for line in report:
-        print('\t'.join(map(str, line)))
+    report('Poly A and expression table',
+           ['\t'.join(map(str, line)) for line in to_report],
+           'Gene\tCNV+\tCNV-\tAAA+\tAAA-')
 
 
 def main(args):
@@ -580,7 +572,7 @@ def main(args):
         o.print('Variants data loaded from cache')
     else:
         o.print('Parsing dataset:', DATASET)
-        variants_by_gene, variants_data = parse(100)
+        variants_by_gene = parse()
         transcripts_to_load = []
         for gene, variants in variants_by_gene.iteritems():
             transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
@@ -590,15 +582,11 @@ def main(args):
         if cache == 'save':
             # a little trick - the iterator is a generator which could
             # not be dumped, but it is not necessary to store it at all
-            it = variants_data.iterator
-            variants_data.iterator = None
             with open(cache_name, 'wb') as f:
                 pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
             o.print('variants data saved to cache')
-            variants_data.iterator = it
 
     variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(cds_db, cdna_db, variants_by_gene)
-    from cna_by_transcript import CompleteCNA, CosmicMappings
 
     if cache == 'load':
         with open(cache_name + '-cna', 'rb') as f:
@@ -617,11 +605,12 @@ if __name__ == '__main__':
 
     import argparse
 
-    to_show = ['databases', 'datasets', 'filters', 'attributes', 'attributes_by_page', 'some_variant']
+    to_show = ['databases', 'datasets', 'filters', 'attributes',
+               'attributes_by_page', 'some_variant']
     cache_actions = ['load', 'save']
     parser = argparse.ArgumentParser(description='Find SNPs')
-    parser.add_argument('--show', choices=to_show, default=None)
-    parser.add_argument('--cache', choices=cache_actions, default=None)
+    parser.add_argument('--show', choices=to_show)
+    parser.add_argument('--cache', choices=cache_actions)
     parser.add_argument('--profile', action='store_true')
 
     subcommands = ['show', 'cache', 'profile']
@@ -633,23 +622,18 @@ if __name__ == '__main__':
         what = args.show
         if what == 'databases':
             from biomart import BiomartServer
-            server = BiomartServer(BIOMART_URL)
-            server.show_databases()
+            BiomartServer(BIOMART_URL).show_databases()
         if what == 'datasets':
             from biomart import BiomartServer
-            server = BiomartServer(BIOMART_URL)
-            server.show_datasets()
+            BiomartServer(BIOMART_URL).show_datasets()
         if what == 'filters':
-            som_snp = BiomartDataset(BIOMART_URL, name=DATASET)
-            som_snp.show_filters()
+            SNPDataset().show_filters()
         if what == 'attributes':
-            som_snp = BiomartDataset(BIOMART_URL, name=DATASET)
-            som_snp.show_attributes()
+            SNPDataset().show_attributes()
         if what == 'attributes_by_page':
-            som_snp = BiomartDataset(BIOMART_URL, name=DATASET)
-            som_snp.show_attributes_by_page()
+            SNPDataset().show_attributes_by_page()
         if what == 'some_variant':
-            variants_by_gene, variants_data = parse(1)
+            variants_by_gene = parse(1)
             gene, variants = variants_by_gene.popitem()
             print(variants[0])
     else:

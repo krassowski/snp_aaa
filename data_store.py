@@ -78,7 +78,7 @@ class DataRow(object):
     def __init__(self, parent, line):
         assert line
         if not isinstance(line, list) and not isinstance(line, tuple):
-            line = line.decode('utf-8').split('\t')
+            line = line.rstrip().decode('utf-8').split('\t')
         self._data = line
         self._parent = parent
 
