@@ -228,13 +228,11 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
         try:
             start, end = variant.get(src + '_start'), variant.get(src + '_end')
-        except IndexError as e:
-            print('Skiping variant:', variant.refsnp_id, 'in context of',
-                  transcript_id, 'lack of cds coordinates')
-            variant.correct = False
-            return False
-
-            raise e
+        except IndexError:
+            o.print('Lack of', src, 'coordinates for variant:',
+                    variant.refsnp_id, 'in context of',
+                    transcript_id)
+            continue
 
         seq = db.fetch(transcript_id, strand, start, end, offset)
 
@@ -428,6 +426,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
         cosmic_genes_to_load.update([variant.vcf_data.INFO['GENE'] for variant in correct_variants])
 
+
         by_transcript = {}
 
         for variant in correct_variants:
@@ -488,7 +487,7 @@ def get_all_variants(variants_by_transcript, gene):
             else:
                 unique_variants[key].affected_transcripts.add(gene_transcript_id)
                 stored_variant = unique_variants[key]
-                duplicated.update(variant.refsnp_id, stored_variant.refsnp_id)
+                duplicated.update([variant.refsnp_id], [stored_variant.refsnp_id])
 
     report('Duplicated records for gene: ' + gene, duplicated)
 
