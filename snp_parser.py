@@ -556,9 +556,9 @@ def get_unique_transcript_ids(variants_by_gene):
     return set(transcripts_to_load)
 
 
-def parse_dataset(dataset):
+def parse_dataset(dataset, args):
     o.print('Parsing dataset:', dataset.name)
-    variants_by_gene = parse(dataset)
+    variants_by_gene = parse(dataset, how_many_genes=args.number)
 
     transcripts_to_load = get_unique_transcript_ids(variants_by_gene)
 
@@ -587,7 +587,7 @@ def main(args, dataset):
             parsed_data = pickle.load(f)
         o.print('Variants data loaded from cache')
     else:
-        parsed_data = parse_dataset(dataset)
+        parsed_data = parse_dataset(dataset, args)
 
         if cache == 'save':
             with open(cache_name, 'wb') as f:
@@ -635,6 +635,17 @@ if __name__ == '__main__':
         help='URL of biomart to be used. '
              'For ensembl mirrors replace www with: uswest, useast or asia',
         default='http://www.ensembl.org/biomart')
+    parser.add_argument(
+        '-n',
+        '--number',
+        type=int,
+        help='Number of genes to analyze',
+        default=None)
+    parser.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        help='increase output verbosity')
 
     subcommands = ['show', 'cache', 'profile']
     arguments = ['--' + a if a in subcommands else a for a in sys.argv[1:]]
@@ -645,6 +656,8 @@ if __name__ == '__main__':
     BIOMART_URL = args.biomart
 
     snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
+
+    o.force = args.verbose
 
     if args.show:
         what = args.show

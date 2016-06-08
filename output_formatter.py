@@ -8,6 +8,7 @@ class OutputFormatter(object):
     def __init__(self):
         self.i = 0
         self.silent = False
+        self.force = False
 
     def indent(self):
         self.i += 1
@@ -23,7 +24,7 @@ class OutputFormatter(object):
         self.silent = False
 
     def print(self, *args, **kwargs):
-        if self.silent:
+        if self.silent and not self.force:
             return False
         args = list(args)
         lines = str(args[0]).split('\n')
