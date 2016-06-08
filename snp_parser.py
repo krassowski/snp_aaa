@@ -12,29 +12,12 @@ from cna_by_transcript import CompleteCNA
 
 # pip install pyvcf pysam biomart
 
-DATASET = 'hsapiens_snp_som'
-BIOMART_URL = 'http://www.ensembl.org/biomart'
-"""Mirrors:
-    uswest.ensembl.org
-    useast.ensembl.org
-    asia.ensembl.org
-"""
-
 o = OutputFormatter()
-
-
-class SNPDataset(BiomartDataset):
-
-    def __init__(self):
-        super(SNPDataset, self).__init__(BIOMART_URL, name=DATASET)
 
 
 class VariantsData(BiomartData):
 
     def __init__(self, dataset=None, attributes=None, filters=None):
-
-        if not dataset:
-            dataset = SNPDataset()
 
         if attributes is None:
             attributes = []
@@ -104,9 +87,9 @@ def gene_names_from_patacsdb_csv(how_many):
     return list(genes)
 
 
-def parse(how_many=False):
+def parse(dataset, how_many_genes=False):
 
-    genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many)
+    genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many_genes)
 
     variants_by_gene = {}
 
@@ -116,7 +99,7 @@ def parse(how_many=False):
 
         filters = {'ensembl_gene': genes_from_patacsdb[start:start + 300]}
 
-        variants = VariantsData(filters=filters)
+        variants = VariantsData(filters=filters, dataset=dataset)
 
         # Those attributes are only part that changes acros 'duplicated'
         # records returned by ensembl's biomart for a given mutation.
@@ -157,6 +140,7 @@ def ref_seq_len(src, ref):
     if src not in ref:
         return 0
     return len(ref[src].strip('-'))
+
 
 def inspect(obj):
     """
@@ -424,8 +408,12 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             list(correct_variants)
         )
 
-        cosmic_genes_to_load.update([variant.vcf_data.INFO['GENE'] for variant in correct_variants])
-
+        cosmic_genes_to_load.update(
+            [
+                variant.vcf_data.INFO['GENE']
+                for variant in correct_variants
+            ]
+        )
 
         by_transcript = {}
 
@@ -559,7 +547,36 @@ def summarize(variants_by_gene_by_transcript, cna):
            'Gene\tCNV+\tCNV-\tAAA+\tAAA-')
 
 
-def main(args):
+def get_unique_transcript_ids(variants_by_gene):
+
+    transcripts_to_load = []
+    for gene, variants in variants_by_gene.iteritems():
+        transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
+
+    return set(transcripts_to_load)
+
+
+def parse_dataset(dataset):
+    o.print('Parsing dataset:', dataset.name)
+    variants_by_gene = parse(dataset)
+
+    transcripts_to_load = get_unique_transcript_ids(variants_by_gene)
+
+    cds_db = SequenceDB(
+        index_by='transcript',
+        sequence_type='cds',
+        restrict_to=transcripts_to_load)
+    cdna_db = SequenceDB(
+        index_by='transcript',
+        sequence_type='cdna',
+        restrict_to=transcripts_to_load)
+
+    o.print('Dataset parsed')
+
+    return variants_by_gene, cds_db, cdna_db
+
+
+def main(args, dataset):
     import cPickle as pickle
 
     cache = args.cache
@@ -567,23 +584,17 @@ def main(args):
 
     if cache == 'load':
         with open(cache_name, 'rb') as f:
-            variants_by_gene, cds_db, cdna_db = pickle.load(f)
+            parsed_data = pickle.load(f)
         o.print('Variants data loaded from cache')
     else:
-        o.print('Parsing dataset:', DATASET)
-        variants_by_gene = parse()
-        transcripts_to_load = []
-        for gene, variants in variants_by_gene.iteritems():
-            transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
-        transcripts_to_load = set(transcripts_to_load)
-        cds_db = SequenceDB(index_by='transcript', sequence_type='cds', restrict_to=transcripts_to_load)
-        cdna_db = SequenceDB(index_by='transcript', sequence_type='cdna', restrict_to=transcripts_to_load)
+        parsed_data = parse_dataset(dataset)
+
         if cache == 'save':
-            # a little trick - the iterator is a generator which could
-            # not be dumped, but it is not necessary to store it at all
             with open(cache_name, 'wb') as f:
-                pickle.dump((variants_by_gene, cds_db, cdna_db), f, protocol=pickle.HIGHEST_PROTOCOL)
+                pickle.dump(parsed_data, f, protocol=pickle.HIGHEST_PROTOCOL)
             o.print('variants data saved to cache')
+
+    variants_by_gene, cds_db, cdna_db = parsed_data
 
     variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(cds_db, cdna_db, variants_by_gene)
 
@@ -592,7 +603,9 @@ def main(args):
             cna = pickle.load(f)
         o.print('CNA loaded from cache')
     else:
-        cna = CompleteCNA('cosmic/CosmicCompleteCNA.tsv', restrict_to=cosmic_genes_to_load)
+        cna = CompleteCNA(
+            'cosmic/CosmicCompleteCNA.tsv',
+            restrict_to=cosmic_genes_to_load)
         if cache == 'save':
             with open(cache_name + '-cna', 'wb') as f:
                 pickle.dump(cna, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -611,11 +624,27 @@ if __name__ == '__main__':
     parser.add_argument('--show', choices=to_show)
     parser.add_argument('--cache', choices=cache_actions)
     parser.add_argument('--profile', action='store_true')
+    parser.add_argument(
+        '--dataset',
+        type=str,
+        help='name of biomart dataset to be used, eg. hsapiens_snp',
+        default='hsapiens_snp_som')
+    parser.add_argument(
+        '--biomart',
+        type=str,
+        help='URL of biomart to be used. '
+             'For ensembl mirrors replace www with: uswest, useast or asia',
+        default='http://www.ensembl.org/biomart')
 
     subcommands = ['show', 'cache', 'profile']
     arguments = ['--' + a if a in subcommands else a for a in sys.argv[1:]]
 
     args = parser.parse_args(arguments)
+
+    global BIOMART_URL
+    BIOMART_URL = args.biomart
+
+    snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
 
     if args.show:
         what = args.show
@@ -626,19 +655,21 @@ if __name__ == '__main__':
             from biomart import BiomartServer
             BiomartServer(BIOMART_URL).show_datasets()
         if what == 'filters':
-            SNPDataset().show_filters()
+            snp_dataset.show_filters()
         if what == 'attributes':
-            SNPDataset().show_attributes()
+            snp_dataset.show_attributes()
         if what == 'attributes_by_page':
-            SNPDataset().show_attributes_by_page()
+            snp_dataset.show_attributes_by_page()
         if what == 'some_variant':
-            variants_by_gene = parse(1)
+            # it would be very strange if we do not find
+            # any variants in first 5 random genes
+            variants_by_gene = parse(snp_dataset, how_many_genes=5)
             gene, variants = variants_by_gene.popitem()
             print(variants[0])
     else:
 
         if args.profile:
             import profile
-            profile.run('main(args)')
+            profile.run('main(args, snp_dataset)')
         else:
-            main(args)
+            main(args, snp_dataset)
