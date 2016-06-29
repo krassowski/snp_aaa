@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
+from collections import defaultdict
 import vcf
 import sys
 from poly_a import poly_a
@@ -34,18 +35,8 @@ class VariantsData(BiomartData):
             'allele_1',  # Ancestral allele
             'minor_allele',
             'chrom_strand',
-            # 'validated',
-            # 'minor_allele_freq',
-            # 'minor_allele_count',
-            # 'variation_names',
-            'phenotype_description',
-            'set_name',
-            'set_description',
-            # 'clinical_significance',
-            # 'refsnp_source_description',
             'cdna_start',
             'cdna_end',
-            # 'consequence_type_tv',
             'ensembl_gene_stable_id',
             'ensembl_transcript_stable_id',
             'ensembl_transcript_chrom_strand',
@@ -71,8 +62,16 @@ def show_pos_with_context(seq, start, end):
     return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
 
 
-def gene_names_from_patacsdb_csv(how_many):
+def gene_names_from_patacsdb_csv(how_many=False):
+    """
+    Load gene names from given csv file. The default file was exported from
+    sysbio.ibb.waw.pl/patacsdb database, from homo spaiens dataset.
 
+    The gene names are expected to be located at second column in each row.
+    The count of gene names to read can be constrained with use of an optional
+    `how_many` argument (default False denotes that all gene names
+    from the file should be returned)
+    """
     genes = set()
     count = 0
     with open('patacsdb_all.csv', 'r') as f:
@@ -87,50 +86,32 @@ def gene_names_from_patacsdb_csv(how_many):
     return list(genes)
 
 
-def parse(dataset, how_many_genes=False):
+def get_variants_by_genes(dataset, gene_names):
 
-    genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many_genes)
-
-    variants_by_gene = {}
+    variants_by_gene = defaultdict(list)
 
     previous_id = None
 
-    for start in range(0, len(genes_from_patacsdb), 300):
+    for start in range(0, len(gene_names), 300):
 
-        filters = {'ensembl_gene': genes_from_patacsdb[start:start + 300]}
+        filters = {'ensembl_gene': gene_names[start:start + 300]}
 
         variants = VariantsData(filters=filters, dataset=dataset)
 
-        # Those attributes are only part that changes acros 'duplicated'
-        # records returned by ensembl's biomart for a given mutation.
-        # To avoid redundancy I am assembling all redundant entries into
-        # single one, grouped by refsnp_id (in case of cosmic mutations,
-        # the cosmic id is stored inside this field). Attributes that are
-        # chaning acros 'duplicated' entries are sotred in a list so no
-        # information is lost. Nontheless this does not reselve all the
-        # issues with redundancy of retrived data - some are processed later.
-        redundant_attrs = ['phenotype_description', 'set_name', 'set_description']
-
-        # I assert that two redundant entires comes always one after another.
         for variant in variants:
 
             gene = variant.ensembl_gene_stable_id
 
             assert variant.refsnp_id
+            # this scans for most common record duplications in biomart,
+            # which come always one after another
+            assert variant.refsnp_id != previous_id
 
-            if variant.refsnp_id == previous_id:
-                last = variants_by_gene[gene][-1]
-                assert previous_id == last.refsnp_id
-                for attr in redundant_attrs:
-                    last.get(attr).append(variant.get(attr))
-            else:
-                for attr in redundant_attrs:
-                    variant.set(attr, [variant.get(attr)])
-                if gene not in variants_by_gene:
-                    variants_by_gene[gene] = []
-                variants_by_gene[gene].append(variant)
-                previous_id = variant.refsnp_id
+            variants_by_gene[gene].append(variant)
+            previous_id = variant.refsnp_id
 
+        # this is a small trick to turn off unpicklable iterator so it is
+        # possible to save the variants object as a cache by pickling
         variants.iterator = None
 
     return variants_by_gene
@@ -227,10 +208,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         reference_nuc[src] = seq[offset:-offset]
         reference_seq[src] = seq
 
-    # o.print('Ancestral allele: ' + variant.allele_1)
     # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
-    # o.print('Allele: ' + variant.allele)
-    # o.print('consequence_allele_string:' + variant.consequence_allele_string)
 
     reference_nuc['biomart (ancestral)'] = variant.allele_1
 
@@ -241,18 +219,16 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
     pos = [str(variant.chr_name), int(variant.chrom_start), int(variant.chrom_end)]
 
     seq = chromosome.fetch(pos[1], pos[2], offset)
-    # nuc = chromosome.fetch(pos[1], pos[2])
 
     reference_nuc['genome'] = seq[offset:-offset]
     reference_seq['genome'] = seq
-
-    # o.print('Chromosomal position: {0}:{1}-{2}'.format(*pos))
 
     # to get to vcf stored data by vcf reader, change coordinates to 0-based
     pos[1] -= 1
     pos[2] -= 1
 
-    # and represent them as range (if you had n:n pointing to a single base, use n:n+1)
+    # and represent them as range
+    # (if you had n:n pointing to a single base, use n:n+1)
     pos[2] += 1
 
     for src, seq in reference_seq.items():
@@ -443,6 +419,11 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
 
 def report(name, data, comment=None):
+    """Generates list-based report quickly.
+
+    File will be placed in 'reports' dir and name will be derived from 'name' of
+    the report. The data should be an iterable collection of strings.
+    """
     if not data:
         return
     with open('reports/' + name.replace(' ', '_') + '.txt', 'w') as f:
@@ -547,36 +528,27 @@ def summarize(variants_by_gene_by_transcript, cna):
            'Gene\tCNV+\tCNV-\tAAA+\tAAA-')
 
 
-def get_unique_transcript_ids(variants_by_gene):
+def get_all_used_transcript_ids(variants_by_gene):
+    """Return all transcript identificators that occur in the passed variants.
 
-    transcripts_to_load = []
-    for gene, variants in variants_by_gene.iteritems():
-        transcripts_to_load += [v.ensembl_transcript_stable_id for v in variants]
+    variants_by_gene is expected to by a dict of variant lists grouped by genes.
+    """
+    transcripts_ids = set()
 
-    return set(transcripts_to_load)
+    for variants in variants_by_gene.itervalues():
+        transcripts_ids.update({
+            variant.ensembl_transcript_stable_id
+            for variant in variants
+        })
 
-
-def parse_dataset(dataset, args):
-    o.print('Parsing dataset:', dataset.name)
-    variants_by_gene = parse(dataset, how_many_genes=args.number)
-
-    transcripts_to_load = get_unique_transcript_ids(variants_by_gene)
-
-    cds_db = SequenceDB(
-        index_by='transcript',
-        sequence_type='cds',
-        restrict_to=transcripts_to_load)
-    cdna_db = SequenceDB(
-        index_by='transcript',
-        sequence_type='cdna',
-        restrict_to=transcripts_to_load)
-
-    o.print('Dataset parsed')
-
-    return variants_by_gene, cds_db, cdna_db
+    return transcripts_ids
 
 
 def main(args, dataset):
+    """
+    The main workflow happens here:
+        1) The genes
+    """
     import cPickle as pickle
 
     cache = args.cache
@@ -584,19 +556,35 @@ def main(args, dataset):
 
     if cache == 'load':
         with open(cache_name, 'rb') as f:
-            parsed_data = pickle.load(f)
+            pickled_data = pickle.load(f)
+            variants_by_gene, cds_db, cdna_db = pickled_data
         o.print('Variants data loaded from cache')
     else:
-        parsed_data = parse_dataset(dataset, args)
+        genes_from_patacsdb = gene_names_from_patacsdb_csv(args.number)
+
+        variants_by_gene = get_variants_by_genes(dataset, genes_from_patacsdb)
+
+        transcripts_to_load = get_all_used_transcript_ids(variants_by_gene)
+
+        cds_db = SequenceDB(
+            index_by='transcript',
+            sequence_type='cds',
+            restrict_to=transcripts_to_load)
+
+        cdna_db = SequenceDB(
+            index_by='transcript',
+            sequence_type='cdna',
+            restrict_to=transcripts_to_load)
 
         if cache == 'save':
             with open(cache_name, 'wb') as f:
-                pickle.dump(parsed_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                to_pickle = (variants_by_gene, cds_db, cdna_db)
+                pickle.dump(to_pickle, f, protocol=pickle.HIGHEST_PROTOCOL)
             o.print('variants data saved to cache')
 
-    variants_by_gene, cds_db, cdna_db = parsed_data
-
-    variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(cds_db, cdna_db, variants_by_gene)
+    variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
+        cds_db, cdna_db, variants_by_gene
+    )
 
     if cache == 'load':
         with open(cache_name + '-cna', 'rb') as f:
@@ -612,8 +600,11 @@ def main(args, dataset):
 
     summarize(variants_by_gene_by_transcript, cna)
 
-
 if __name__ == '__main__':
+
+    # TODO: rozdzielić tablekę na substytucje, insercje delecje i wszystkie inne
+    # kategorie wg Variant Consequence *pobrać wszystko i potem rozdzielać LUB
+    # pobierać po jednym i uruchamiać pipeline per kategoria
 
     import argparse
 
@@ -676,7 +667,11 @@ if __name__ == '__main__':
         if what == 'some_variant':
             # it would be very strange if we do not find
             # any variants in first 5 random genes
-            variants_by_gene = parse(snp_dataset, how_many_genes=5)
+            genes_from_patacsdb = gene_names_from_patacsdb_csv(how_many=5)
+            variants_by_gene = get_variants_by_genes(
+                snp_dataset,
+                genes_from_patacsdb
+            )
             gene, variants = variants_by_gene.popitem()
             print(variants[0])
     else:
