@@ -124,12 +124,6 @@ def get_variants_by_genes(dataset, gene_names):
     return variants_by_gene
 
 
-def ref_seq_len(src, ref):
-    if src not in ref:
-        return 0
-    return len(ref[src].strip('-'))
-
-
 def get_vcf_by_variant(vcf, pos, variant):
 
     if variant.refsnp_source == 'COSMIC':
@@ -164,24 +158,21 @@ def get_vcf_by_id(vcf, pos, record_id):
     return vcf_data
 
 
-def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
+def ref_seq_len(src, ref):
+    if src not in ref:
+        return 0
+    return len(ref[src].strip('-'))
 
-    offset = 20
 
-    o.mute()
-    o.print('Variant name:', variant.refsnp_id)
-
-    transcript_id = variant.ensembl_transcript_stable_id
-    strand = int(variant.ensembl_transcript_chrom_strand)
-
-    if variant.refsnp_source != 'COSMIC':
-        print('Found variant', variant.refsnp_id,
-              'from source other than COSMIC:', variant.refsnp_source)
+def get_reference(variant, databases, offset):
 
     reference_nuc = {}
     reference_seq = {}
 
-    for db in [cdna_db, cds_db]:
+    transcript_id = variant.ensembl_transcript_stable_id
+    strand = int(variant.ensembl_transcript_chrom_strand)
+
+    for db in databases:
         src = db.sequence_type
 
         try:
@@ -201,17 +192,37 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
         reference_nuc[src] = seq[offset:-offset]
         reference_seq[src] = seq
 
+    return reference_nuc, reference_seq
+
+
+def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
+
+    offset = 20
+
+    o.mute()
+    o.print('Variant name:', variant.refsnp_id)
+
+    if variant.refsnp_source != 'COSMIC':
+        print('Found variant', variant.refsnp_id,
+              'from source other than COSMIC:', variant.refsnp_source)
+
+    reference_nuc, reference_seq = get_reference(
+        variant,
+        (cdna_db, cds_db),
+        offset
+    )
+
     # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
 
     reference_nuc['biomart (ancestral)'] = variant.allele_1
 
-    chromosome = dna_db[variant.chr_name]
+    chrom = dna_db[variant.chr_name]
 
-    start, end = chromosome.parse_coordinates(variant.chrom_start, variant.chrom_end)
+    start, end = chrom.parse_coordinates(variant.chrom_start, variant.chrom_end)
 
     pos = [str(variant.chr_name), int(variant.chrom_start), int(variant.chrom_end)]
 
-    seq = chromosome.fetch(pos[1], pos[2], offset)
+    seq = chrom.fetch(pos[1], pos[2], offset)
 
     reference_nuc['genome'] = seq[offset:-offset]
     reference_seq['genome'] = seq
@@ -273,8 +284,8 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
             o.print('cds and cdna of different length')
             variant.cds_cdna_inconsistent = True
 
-    if (ref_seq_len('cds', reference_seq) >= ref_seq_len('cdna', reference_seq) and
-            ref_seq_len('cds', reference_seq)):
+    ref_cds_len = ref_seq_len('cds', reference_seq)
+    if (ref_cds_len and ref_cds_len >= ref_seq_len('cdna', reference_seq)):
         chosen = 'cds'
     elif ref_seq_len('cdna', reference_seq):
         chosen = 'cdna'
@@ -339,7 +350,10 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
     dna_db = {}
     for chromosome in chromosomes:
-        dna_db[chromosome] = FastSequenceDB(sequence_type='dna', id_type='chromosome.' + chromosome)
+        dna_db[chromosome] = FastSequenceDB(
+            sequence_type='dna',
+            id_type='chromosome.' + chromosome
+        )
 
     vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens.vcf.gz')
     vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz')
@@ -539,10 +553,7 @@ def get_all_used_transcript_ids(variants_by_gene):
 
 
 def main(args, dataset):
-    """
-    The main workflow happens here:
-        1) The genes
-    """
+    """ The main workflow happens here """
     import cPickle as pickle
 
     cache = args.cache
