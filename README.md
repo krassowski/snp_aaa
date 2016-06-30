@@ -28,6 +28,10 @@ The analysed variants set has been limited to: synonymous, stop gained, coding s
 
 Versions: all the data come from GRCh38 and COSMIC v77.
 
+#### General workflow
+
+Variants retrieved from biomart and populated with additional data from VCF files are sorted by genes. Later in surroundings of each variant the search for poly(A) is performed - both in original and mutated sequence.
+
 #### Future development ideas
 
 It would be beneficial to split the final association table to separate tables for different variant consequences (synonymous, stop gained, coding sequence and missense) and even to include less restrictive filters on consequences (i.e. take all variants) but then have multiple tables showing associations with respect to consequences of variants. Some types of variant's consequences might be used as control - for example we are expecting to find no correlation in UTR related variants.
@@ -44,8 +48,8 @@ It would be beneficial to split the final association table to separate tables f
 ### What already has been tried
 
 Using gbff files from NCBI in order to gather variants does not look as the best idea - there are a lot of inconsistencies and edge cases to think about.
-
 Parallel processing of GTEx data might be useful when analyzing the GTEx data (divided by tissues), some related code is present in the `gte_parser` file.
+The file with all required data is called `GTEx_Analysis_V6_eQTLs.tar.gz` and is available to download from GTEx portal after [registration](http://www.gtexportal.org/home/register).
 
 
 ##  Summary of set up
@@ -128,7 +132,7 @@ ENSG00000130066    4    1    2    1
 
 Where:
 
-* CNV+/- represents count of samples where the increase or decrease of expression was called in COSMIC database (compare the example data with corresponding COSMIC entry: [SAT1 = ENSG00000130066](https://cancer.sanger.ac.uk/cosmic/gene/analysis?ln=SAT1#cnv_t) - `CN type` column) 
+* CNV+/- represents count of samples where the increase or decrease of expression was called in COSMIC database (compare the example data with corresponding COSMIC entry: [SAT1 ENSG00000130066](https://cancer.sanger.ac.uk/cosmic/gene/analysis?ln=SAT1#cnv_t), `CN type` column) 
 * AAA+/- shows number of variants that create/elongate/shorten to poly(A) track.
 
 
