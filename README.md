@@ -28,6 +28,10 @@ The analysed variants set has been limited to: synonymous, stop gained, coding s
 
 Versions: all the data come from GRCh38 and COSMIC v77.
 
+#### General workflow
+
+Variants retrieved from biomart and populated with additional data from VCF files are sorted by genes. Later in surroundings of each variant the search for poly(A) is performed - both in original and mutated sequence.
+
 #### Future development ideas
 
 It would be beneficial to split the final association table to separate tables for different variant consequences (synonymous, stop gained, coding sequence and missense) and even to include less restrictive filters on consequences (i.e. take all variants) but then have multiple tables showing associations with respect to consequences of variants. Some types of variant's consequences might be used as control - for example we are expecting to find no correlation in UTR related variants.
