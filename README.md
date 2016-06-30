@@ -2,6 +2,7 @@
 
 The repository contains multiple Python modules, useful when analyzing data from Ensembl, Cosmic, NCBI and other services while searching for information about effect of particular SNPs. Most of the modules are written in Python 2.7.4, some uses Python 3.4. The major part of the analysis revolves around data from [PATACSDB](https://peerj.com/articles/cs-45/) and expands on the research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154). The core module for analysis of somatic SNPs (coming mostly from COSMIC) is called `snp_parser`. Other, started but unfinished module `gte_parser` was intended to perform analysis on all mutations in protein-coding DNA sequences with respect to expression level taken from [GTEx portal](http://www.gtexportal.org/home/).
 
+
 ## What is the workflow of particular modules? ##
 
 ### Somatic SNPs analysis  ###
@@ -25,6 +26,7 @@ The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1
 
 The analysed variants set has been limited to: synonymous, stop gained, coding sequence and missense variants.  Only SNPs from genes present in PATACSDB (Homo sapiens dataset) were downloaded (so we had guarantee of at least one poly(A) track presence). I was not able to get the alleles from Ensembl's biomart as it is not providing the alleles of variants from COSMIC database at the time of writing (and those were crucial for the analysis!). From COSMIC genes cDNA sequences only headers were used in order to map the names of transcripts between Ensembl and COSMIC databases (worth noting, the distribution of data between transcripts from COSMIC were later in the analysis treated as uninformative, due to purported lack of proper curation i.e. there are serious premises multiple transcript-specific entries were nonetheless assigned to canonical transcript when incorporated to the COSMIC database).
 
+Versions: all the data come from GRCh38 and COSMIC v77.
 
 #### Future development ideas
 
@@ -44,6 +46,7 @@ It would be beneficial to split the final association table to separate tables f
 Using gbff files from NCBI in order to gather variants does not look as the best idea - there are a lot of inconsistencies and edge cases to think about.
 
 Parallel processing of GTEx data might be useful when analyzing the GTEx data (divided by tissues), some related code is present in the `gte_parser` file.
+
 
 ##  Summary of set up
 
@@ -67,9 +70,7 @@ You will also need to have `samtools` or at least `htslib` installed.
 #### Directories to create
 
 ```
-mkdir reports
-mkdir cosmic
-mkdir ensembl
+mkdir reports cosmic ensembl
 ```
 
 #### COSMIC
@@ -111,6 +112,10 @@ You can adjust number of analysed genes with `-n` parameter:
 to get full list of available options, use `./snp_parser.py -h`.
 
 Probably the most useful option is caching: `./snp_parser.py cache save` and `./snp_parser.py cache load`. I strongly recommend to use it always when experimenting with code or performing bigger analyses.
+
+### Output
+
+You will find the output (several text or tsv files) in `reports` directory.
 
 
 ## How to run tests
