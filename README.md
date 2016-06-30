@@ -64,18 +64,36 @@ You will also need to have `samtools` or at least `htslib` installed.
 
 ### Databases download
 
+#### Directories to create
+
 ```
 mkdir reports
 mkdir cosmic
-mkdir ensembl_db
+mkdir ensembl
 ```
 
-* To [download exported data](http://cancer.sanger.ac.uk/cosmic/download) from COSMIC databases [registration](https://cancer.sanger.ac.uk/cosmic/register) is required. Links to particular files are included in _data retrieval_ section. All the COSMIC files should go to the `cosmic` directory.
-* All FASTA files from Ensembl should be placed in `ensembl_db` directory. Those files could be downloaded by following script:
-* VCF files from ensembl should come to `ensembl_vcf`. After downloading VCF files you have to create tabix indices for them - make sure that you have [htslib](http://www.htslib.org) installed and run:
+#### COSMIC
+To [download exported data](http://cancer.sanger.ac.uk/cosmic/download) from COSMIC databases [registration](https://cancer.sanger.ac.uk/cosmic/register) is required. Links to particular files are included in _data retrieval_ section. All the COSMIC files should go to the `cosmic` directory.
+
+VCF files from Cosmic will need an additional processing - creation of tabix file will be needed. Make sure that you have [htslib](http://www.htslib.org) installed and run:
 ```
 ./create_tabix.sh filename
 ```
+
+#### Ensembl
+
+All files from Ensembl should be placed in `ensembl` directory. Those files could be downloaded using following script:
+```
+cd ensembl
+wget ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/cds/Homo_sapiens.GRCh38.cds.all.fa.gz
+wget ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh38.cdna.all.fa.gz
+wget ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome.*.fa.gz
+wget ftp://ftp.ensembl.org/pub/release-84/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
+wget ftp://ftp.ensembl.org/pub/release-84/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
+```
+
+When analyzing only somatic mutations one might want to use `Homo_sapiens_somatic.vcf.gz` instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
+
 
 ### How to run tests
 
