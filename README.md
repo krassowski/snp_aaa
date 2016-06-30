@@ -126,6 +126,7 @@ ENSG00000130066    4    1    2    1
 ```
 
 Where:
+
 * CNV+/- represents count of samples where the increase or decrease of expression was called in COSMIC database (compare the example data with corresponding COSMIC entry: [SAT1 = ENSG00000130066](https://cancer.sanger.ac.uk/cosmic/gene/analysis?ln=SAT1#cnv_t) - `CN type` column) 
 * AAA+/- shows number of variants that create/elongate/shorten to poly(A) track.
 
