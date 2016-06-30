@@ -17,7 +17,7 @@ The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1
 
 * Variants' names were obtained from Ensembl with use of Biomart API, with restrict to hsapiens_snp_som dataset (somatic mutations only),
 * the variant's alleles data were taken from VCF files from two sources: [Ensembl](ftp://ftp.ensembl.org/pub/release-84/variation/vcf/homo_sapiens/) and [COSMIC](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v77/VCF/CosmicCodingMuts.vcf.gz),
-* gene sequences (also from Ensembl) was downloaded as chromosome-grouped [DNA FASTA files](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/dna/),
+* gene sequences (also from Ensembl) was downloaded as [chromosome-grouped DNA](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/dna/), [CDS](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/cds/) and [cDNA](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/cdna/) FASTA files.
 * from COSMIC following data were downloaded:
     * [gene expression level 3 data](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v77/CosmicCompleteGeneExpression.tsv.gz) - from the TCGA portal
     * [all copy number abberations](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v77/CosmicCompleteCNA.tsv.gz) - used to map gene expression from samples to gene transcripts
@@ -65,12 +65,17 @@ You will also need to have `samtools` or at least `htslib` installed.
 ### Databases download
 
 ```
+mkdir reports
 mkdir cosmic
+mkdir ensembl_db
 ```
 
-* To [download exported data](http://cancer.sanger.ac.uk/cosmic/download) from COSMIC databases [registration](https://cancer.sanger.ac.uk/cosmic/register) is required. Links to particular files are included in _data retrieval_ section. All the COSMIC files should go to the cosmic directory.
-
-Ensembl TBD
+* To [download exported data](http://cancer.sanger.ac.uk/cosmic/download) from COSMIC databases [registration](https://cancer.sanger.ac.uk/cosmic/register) is required. Links to particular files are included in _data retrieval_ section. All the COSMIC files should go to the `cosmic` directory.
+* All FASTA files from Ensembl should be placed in `ensembl_db` directory. Those files could be downloaded by following script:
+* VCF files from ensembl should come to `ensembl_vcf`. After downloading VCF files you have to create tabix indices for them - make sure that you have [htslib](http://www.htslib.org) installed and run:
+```
+./create_tabix.sh filename
+```
 
 ### How to run tests
 
