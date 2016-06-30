@@ -10,10 +10,12 @@ def show_pos_with_context(seq, start, end):
 def has_poly_a(*args, **kwargs):
     return poly_a(*args, **kwargs)[0]
 
-def poly_a(seq, start, end, minimal_length=12, allowed_mismatches=1, flanking=True):
+
+def poly_a(seq, start, end, minimal_length=12,
+           allowed_mismatches=1, flanking=True):
 
     best_match = 0
-    best_coords = None
+    # best_coords = None
 
     border_size = (allowed_mismatches + 2)
     border = '-' * border_size
@@ -44,24 +46,23 @@ def poly_a(seq, start, end, minimal_length=12, allowed_mismatches=1, flanking=Tr
                 pos -= d * (local_mismaches + 1)
                 mismatches -= (local_mismaches)
             coords.append(pos)
-        # print(coords)
 
         if length >= best_match:
             best_match = length
-            best_coords = coords
+            # best_coords = coords
 
     accepted = best_match >= minimal_length
-    #print(show_pos_with_context(seq, start, end), accepted)
 
-    #print(best_coords)
-    #print(seq[best_coords[0]:best_coords[1]])
     return accepted, best_match
 
-#Persolal genome project, 100 GP - możńa sprawdzic wspołwystępowanie
 
 if __name__ == '__main__':
+    """ One could implement tests on real protein's sequences like:
+
+    RASAL2, ZCRB1, RBMK2 (this one has long region where 12-1 might not match)
+    """
     test_sequences = [
-        #'     ↓  ↓' test: RASAL2, ZCRB1, RBMK2 - dlugi region, ale nie do konca sie da opisac 12-1, sprawdzic
+        #      ↓  ↓
         'AAAAAA--------',
         '---------AAAAA',
         '------AAA-AA--',
