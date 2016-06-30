@@ -4,6 +4,7 @@
 from __future__ import print_function
 from collections import defaultdict
 import vcf
+import os
 import sys
 from poly_a import poly_a
 from fasta_sequence_db import SequenceDB, FastSequenceDB
@@ -86,10 +87,14 @@ def gene_names_from_patacsdb_csv(how_many=False):
 
 
 def get_variants_by_genes(dataset, gene_names):
+    """Retrive from Ensembl's biomart all variants that affect given genes.
+
+    Variants that occur repeatedly in a given gene (i.e. were annotated for
+    multiple transcripts) will be reported only once.
+    The genes should be specified as the list of gene names.
+    """
 
     variants_by_gene = defaultdict(list)
-
-    previous_id = None
 
     for start in range(0, len(gene_names), 300):
 
@@ -102,12 +107,15 @@ def get_variants_by_genes(dataset, gene_names):
             gene = variant.ensembl_gene_stable_id
 
             assert variant.refsnp_id
-            # this scans for most common record duplications in biomart,
-            # which come always one after another
-            assert variant.refsnp_id != previous_id
 
-            variants_by_gene[gene].append(variant)
-            previous_id = variant.refsnp_id
+            for known_variant in variants_by_gene[gene]:
+                if variant.refsnp_id == known_variant.refsnp_id:
+                    allowed = variant.ensembl_transcript_stable_id != known_variant.ensembl_transcript_stable_id
+                    # TODO: check that all other attributes are equal
+                    assert allowed
+                    break
+            else:
+                variants_by_gene[gene].append(variant)
 
         # this is a small trick to turn off unpicklable iterator so it is
         # possible to save the variants object as a cache by pickling
@@ -267,14 +275,14 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
     if (ref_seq_len('cds', reference_seq) >= ref_seq_len('cdna', reference_seq) and
             ref_seq_len('cds', reference_seq)):
-        ref_seq = reference_seq['cds']
-        o.print('Chosing cds sequence as reference')
+        chosen = 'cds'
     elif ref_seq_len('cdna', reference_seq):
-        ref_seq = reference_seq['cdna']
-        o.print('Chosing cdna sequence as reference')
+        chosen = 'cdna'
     else:
-        ref_seq = reference_seq['genome']
-        o.print('Chosing genome sequence as reference')
+        chosen = 'genome'
+
+    ref_seq = reference_seq[chosen]
+    o.print('Chosing %s sequence as reference' % chosen)
 
     variant.sequence = ref_seq
     o.print('Context: ' + show_pos_with_context(ref_seq, offset, -offset))
@@ -333,12 +341,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
     for chromosome in chromosomes:
         dna_db[chromosome] = FastSequenceDB(sequence_type='dna', id_type='chromosome.' + chromosome)
 
-    """
-    Przygotowanie pliku tabix:
-    1. zainstaluj htslib z http://www.htslib.org
-    2. run ./create_tabix.sh filename
-    """
-    vcf_ensembl = vcf.Reader(filename='ensembl_vcf/Homo_sapiens.vcf.gz')
+    vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens.vcf.gz')
     vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz')
 
     variants_by_gene_by_transcript = {}
@@ -408,10 +411,16 @@ def report(name, data, comment=None):
 
     File will be placed in 'reports' dir and name will be derived from 'name' of
     the report. The data should be an iterable collection of strings.
+    Empty reports will not be created.
     """
+    directory = 'reports'
+
+    if not os.path.exists(directory):
+            os.makedirs(directory)
+
     if not data:
         return
-    with open('reports/' + name.replace(' ', '_') + '.txt', 'w') as f:
+    with open(directory + '/' + name.replace(' ', '_') + '.txt', 'w') as f:
         f.write('# ' + name + '\n')
         if comment:
             f.write('#' + comment + '\n')

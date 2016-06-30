@@ -1,6 +1,9 @@
+from __future__ import print_function
 from output_formatter import OutputFormatter
 
+
 o = OutputFormatter()
+
 
 def inspect(obj):
     """
@@ -14,5 +17,3 @@ def inspect(obj):
         o.print(k, v)
     o.print(dir(obj))
     o.outdent()
-
-

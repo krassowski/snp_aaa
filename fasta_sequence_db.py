@@ -18,7 +18,7 @@ def complement(seq):
 
 class BasicSequenceDB(object):
 
-    directory = 'ensembl_db'
+    directory = 'ensembl'
     assembly = 'GRCh38'
     species = 'Homo_sapiens'
 
