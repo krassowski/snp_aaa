@@ -94,11 +94,29 @@ wget ftp://ftp.ensembl.org/pub/release-84/variation/vcf/homo_sapiens/Homo_sapien
 
 When analyzing only somatic mutations one might want to use `Homo_sapiens_somatic.vcf.gz` instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
 
+### Running somatic SNPs analysis
 
-### How to run tests
+The script is written in Python 2.7 and has some basic command line interface. To start full analysis just run it without any additional options (not recommended if you have slow computer):
+
+```
+./snp_parser.py
+```
+
+You can adjust number of analysed genes with `-n` parameter:
+
+```
+./snp_parser.py -n 5
+```
+
+to get full list of available options, use `./snp_parser.py -h`.
+
+Probably the most useful option is caching: `./snp_parser.py cache save` and `./snp_parser.py cache load`. I strongly recommend to use it always when experimenting with code or performing bigger analyses.
+
+
+## How to run tests
 
 You can run basic tests of poly_aaa module simply running it from command line (as opposed to importing from another python package).
 
-### About ###
+## About
 
 The code in the repository was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
