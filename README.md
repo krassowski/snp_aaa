@@ -52,7 +52,8 @@ Parallel processing of GTEx data might be useful when analyzing the GTEx data (d
 
 ### Dependencies
 
-To use biomart API, the parser uses [fork of pip-distributed biomart](https://github.com/krassowski/biomart) package (which is 2 features ahead of the original repository, hopefully the maintainer will respond to remaining pull request some time). To download it, type following from snp_aaa directory:
+To use biomart API, the parser uses [fork of pip-distributed biomart](https://github.com/krassowski/biomart) package (which is 2 features ahead of the original repository, maybye the maintainer will respond to remaining pull request later).
+To download it, type following from snp_aaa directory:
 ```
 git clone https://github.com/krassowski/biomart
 ```
