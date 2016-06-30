@@ -44,8 +44,8 @@ It would be beneficial to split the final association table to separate tables f
 ### What already has been tried
 
 Using gbff files from NCBI in order to gather variants does not look as the best idea - there are a lot of inconsistencies and edge cases to think about.
-
 Parallel processing of GTEx data might be useful when analyzing the GTEx data (divided by tissues), some related code is present in the `gte_parser` file.
+The file with all required data is called `GTEx_Analysis_V6_eQTLs.tar.gz` and is available to download from GTEx portal after [registration](http://www.gtexportal.org/home/register).
 
 
 ##  Summary of set up
