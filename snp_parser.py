@@ -11,7 +11,6 @@ from output_formatter import OutputFormatter
 from biomart_data import BiomartData, BiomartDataset
 from cna_by_transcript import CompleteCNA
 
-# pip install pyvcf pysam biomart
 
 o = OutputFormatter()
 
@@ -121,20 +120,6 @@ def ref_seq_len(src, ref):
     if src not in ref:
         return 0
     return len(ref[src].strip('-'))
-
-
-def inspect(obj):
-    """
-    Just for debugging and exploration
-    """
-    o.unmute()
-    o.print(obj)
-    o.indent()
-    o.print(type(obj))
-    for k, v in obj.__dict__.items():
-        o.print(k, v)
-    o.print(dir(obj))
-    o.outdent()
 
 
 def get_vcf_by_variant(vcf, pos, variant):
@@ -601,10 +586,6 @@ def main(args, dataset):
     summarize(variants_by_gene_by_transcript, cna)
 
 if __name__ == '__main__':
-
-    # TODO: rozdzielić tablekę na substytucje, insercje delecje i wszystkie inne
-    # kategorie wg Variant Consequence *pobrać wszystko i potem rozdzielać LUB
-    # pobierać po jednym i uruchamiać pipeline per kategoria
 
     import argparse
 
