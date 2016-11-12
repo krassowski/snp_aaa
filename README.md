@@ -56,7 +56,7 @@ The file with all required data is called `GTEx_Analysis_V6_eQTLs.tar.gz` and is
 
 ### Dependencies
 
-To use biomart API, the parser uses [fork of pip-distributed biomart](https://github.com/krassowski/biomart) package (which is 2 features ahead of the original repository, maybye the maintainer will respond to remaining pull request later).
+To use biomart API, the parser uses [fork of pip-distributed biomart](https://github.com/krassowski/biomart) package (which is 2 features ahead of the original repository, pull request has been already sent).
 To download it, type following from snp_aaa directory:
 ```
 git clone https://github.com/krassowski/biomart
