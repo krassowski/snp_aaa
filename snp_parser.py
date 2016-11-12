@@ -335,6 +335,9 @@ def analyze_poly_a(variant, offset):
     variant.will_have_poly_a = will_have
     variant.poly_aaa_before = before_len
     variant.poly_aaa_after = after_len
+    variant.poly_aaa_change = variant.poly_aaa_after - variant.poly_aaa_before
+    variant.poly_aaa_increase = variant.poly_aaa_after > variant.poly_aaa_before
+    variant.poly_aaa_decrease = variant.poly_aaa_after < variant.poly_aaa_before
 
 
 def parse_variants(cds_db, cdna_db, variants_by_gene):
@@ -471,12 +474,49 @@ def get_all_variants(variants_by_transcript, gene):
     return unique_variants.values()
 
 
-def summarize(variants_by_gene_by_transcript, cna):
+def select_poly_a_related_variants(variants):
+    return [
+        variant
+        for variant in variants
+        if variant.has_poly_a or variant.will_have_poly_a
+    ]
+
+
+def summarize_poly_aaa_variants(variants_by_gene_by_transcript, cna):
+
+    variant_aaa_report = []
+
+    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+
+        # treat all variants the same way - just remove duplicates
+        variants = get_all_variants(variants_by_transcript, gene)
+
+        poly_a_related_variants = select_poly_a_related_variants(variants)
+
+        variant_aaa_report += ['# ' + gene]
+        variant_aaa_report += [
+            '\t'.join([
+                variant.refsnp_id,
+                variant.poly_aaa_increase,
+                variant.poly_aaa_decrease,
+                variant.poly_aaa_change
+            ])
+            for variant in poly_a_related_variants
+        ]
+
+    report(
+        'poly a increase/decrease by variants',
+        variant_aaa_report,
+        'snp_id\tpoly_aaa_increase\tpoly_aaa_decrease\tpoly_aaa_change'
+    )
+
+
+def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
 
     variants_count = 0
     poly_a_related_variants_count = 0
 
-    to_report = []
+    cnv_aaa_report = []
     import operator
 
     no_expression = set()
@@ -484,7 +524,7 @@ def summarize(variants_by_gene_by_transcript, cna):
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
         expression = [0, 0, 0]
-        for gene_transcript_id, variants in variants_by_transcript.iteritems():
+        for gene_transcript_id in variants_by_transcript.keys():
 
             try:
                 expr = cna.get_by_gene_and_transcript(gene_transcript_id)
@@ -494,7 +534,7 @@ def summarize(variants_by_gene_by_transcript, cna):
                 no_expression.add(gene_transcript_id)
                 continue
 
-        # Treat all variants the same way - just remove duplicates
+        # treat all variants the same way - just remove duplicates
         variants = get_all_variants(variants_by_transcript, gene)
 
         variants_count += len(variants)
@@ -509,31 +549,34 @@ def summarize(variants_by_gene_by_transcript, cna):
         # gain of poly_aaa: , increase in length (+1 per residue)
         increase = 0
 
+        # the same as: poly_a_related_variants = select_poly_a_related_variants(variants)
         poly_a_related_variants = list(poly_a_variants + poly_a_potential_variants)
         poly_a_related_variants_count += len(poly_a_related_variants)
 
         # give scores for length increase
         for variant in poly_a_related_variants:
-            if variant.poly_aaa_after > variant.poly_aaa_before:
+            if variant.poly_aaa_increase:
                 increase += 1
-            elif variant.poly_aaa_after < variant.poly_aaa_before:
+            elif variant.poly_aaa_decrease:
                 decrease += 1
 
         assert increase >= len(poly_a_potential_variants) - len(poly_a_variants)
 
-        to_report += [(gene, expression[0], expression[2], increase, decrease)]
+        cnv_aaa_report += [(gene, expression[0], expression[2], increase, decrease)]
 
-    report('No expression data for some transcripts', no_expression)
+    report('no expression data for some transcripts', no_expression)
 
     gene_count = len(variants_by_gene_by_transcript)
 
-    print('Analyzed genes:', gene_count)
-    print('Analyzed variants:', variants_count)
+    print('analyzed genes:', gene_count)
+    print('analyzed variants:', variants_count)
     print('poly_a related variants', poly_a_related_variants_count)
 
-    report('Poly A and expression table',
-           ['\t'.join(map(str, line)) for line in to_report],
-           'Gene\tCNV+\tCNV-\tAAA+\tAAA-')
+    report(
+        'poly a and expression table',
+        ['\t'.join(map(str, line)) for line in cnv_aaa_report],
+        'gene\tcnv+\tcnv-\taaa+\taaa-'
+    )
 
 
 def get_all_used_transcript_ids(variants_by_gene):
@@ -603,7 +646,8 @@ def main(args, dataset):
             with open(cache_name + '-cna', 'wb') as f:
                 pickle.dump(cna, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    summarize(variants_by_gene_by_transcript, cna)
+    summarize_poly_aaa_variants(variants_by_gene_by_transcript)
+    summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
 
 if __name__ == '__main__':
 
