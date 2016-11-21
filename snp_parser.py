@@ -198,6 +198,7 @@ def get_reference(variant, databases, offset):
 
 def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
+    print('Debug')
     offset = 20
 
     o.mute()
@@ -389,6 +390,10 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             lambda variant: variant.refsnp_source == 'COSMIC',
             list(correct_variants)
         )
+
+
+        for variant in correct_variants:
+            print(variant.vcf_data.INFO, type(variant.vcf_data.INFO))
 
         cosmic_genes_to_load.update(
             [
@@ -606,7 +611,7 @@ def cached(action='load'):
             if action == 'load':
                 with open(cache_name, 'rb') as f:
                     variable = pickle.load(f)
-                o.print('Variants data loaded from cache')
+                o.print('"' + display_name + '" data loaded from cache')
             else:
                 variable = generating_function(*args, **kwargs)
                 if action == 'save':
@@ -625,7 +630,7 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript):
 
         # then: from results get effect (slope) and p-value. if for all tissues effect is in the same direction,
         # set variant.expression_efect = direction.
-        # else set "not sure" and show all such cases to manual analysis 
+        # else set "not sure" and show all such cases to manual analysis
     """
     pass
 
