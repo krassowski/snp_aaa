@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
+import gzip
 
 
 def complement(seq):
@@ -29,7 +30,7 @@ class BasicSequenceDB(object):
 
         if path is None:
             data = [self.species, self.assembly, self.sequence_type, self.id_type]
-            path = self.directory + '/' + '.'.join(data) + '.fa'
+            path = self.directory + '/' + '.'.join(data) + '.fa.gz'
 
         self.path = path
 
@@ -57,7 +58,7 @@ class SequenceDB(BasicSequenceDB):
         print('[database loaded]')
 
     def load(self, index_by, path):
-        with open(path, 'r') as f:
+        with gzip.open(path, 'r') as f:
             if index_by == 'transcript':
                 self.load_by_transcript(f)
             else:
@@ -142,7 +143,7 @@ class FastSequenceDB(BasicSequenceDB):
 
         length = self.length
 
-        with open(self.path, 'r') as f:
+        with gzip.open(self.path, 'r') as f:
             header = f.readline()
 
             first_line = start // length
@@ -175,4 +176,3 @@ class FastSequenceDB(BasicSequenceDB):
                         break
 
         return result
-

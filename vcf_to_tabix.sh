@@ -1,5 +1,5 @@
 #!/bin/bash
 # bgzip and tabix comes from htslib library
 filename=$1
-bgzip -c $filename > $filename.gz
-tabix -p vcf $filename.gz
+gunzip -c $filename | bgzip -c > $filename.bgz
+tabix -p vcf $filename.bgz

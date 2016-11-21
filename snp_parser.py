@@ -11,6 +11,7 @@ from fasta_sequence_db import SequenceDB, FastSequenceDB
 from output_formatter import OutputFormatter
 from biomart_data import BiomartData, BiomartDataset
 from cna_by_transcript import CompleteCNA
+import cPickle as pickle
 
 
 o = OutputFormatter()
@@ -65,7 +66,7 @@ def show_pos_with_context(seq, start, end):
 def gene_names_from_patacsdb_csv(how_many=False):
     """
     Load gene names from given csv file. The default file was exported from
-    sysbio.ibb.waw.pl/patacsdb database, from homo spaiens dataset.
+    sysbio.ibb.waw.pl/patacsdb database, from homo sapiens dataset.
 
     The gene names are expected to be located at second column in each row.
     The count of gene names to read can be constrained with use of an optional
@@ -358,8 +359,8 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             id_type='chromosome.' + chromosome
         )
 
-    vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens.vcf.gz')
-    vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz')
+    vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
+    vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
 
     variants_by_gene_by_transcript = {}
 
@@ -595,59 +596,98 @@ def get_all_used_transcript_ids(variants_by_gene):
     return transcripts_ids
 
 
+def cached(action='load'):
+    """Makes caching a pleasure. Use as a decorator."""
+    def decorator(generating_function):
+        def we_all_like_nested_closures(*args, **kwargs):
+            display_name = generating_function.__name__.replace('_', ' ').title()
+            cache_name = '.cache:' + generating_function.__name__
+
+            if action == 'load':
+                with open(cache_name, 'rb') as f:
+                    variable = pickle.load(f)
+                o.print('Variants data loaded from cache')
+            else:
+                variable = generating_function(*args, **kwargs)
+                if action == 'save':
+                    with open(cache_name, 'wb') as f:
+                        pickle.dump(variable, f, protocol=pickle.HIGHEST_PROTOCOL)
+            return variable
+        return we_all_like_nested_closures
+    return decorator
+
+def poly_aaa_vs_expression(variants_by_gene_by_transcript):
+    """Sketch:
+    for tissue in tissues:
+        # e.g. zgrep Lung_Analysis.v6p.egenes.txt.gz 1_787151_G_A_b37
+        zgrep {tissue}_Analysis.v6p.egenes.txt.gz {chr}_{pos}_{ref}_{alt}_b37
+        # I can also use some kind of database. The file is not big, so berkley should do the trick
+
+        # then: from results get effect (slope) and p-value. if for all tissues effect is in the same direction,
+        # set variant.expression_efect = direction.
+        # else set "not sure" and show all such cases to manual analysis 
+    """
+    pass
+
+
 def main(args, dataset):
-    """ The main workflow happens here """
-    import cPickle as pickle
-
+    """The main workflow happens here."""
     cache = args.cache
-    cache_name = '.cache'
 
-    if cache == 'load':
-        with open(cache_name, 'rb') as f:
-            pickled_data = pickle.load(f)
-            variants_by_gene, cds_db, cdna_db = pickled_data
-        o.print('Variants data loaded from cache')
-    else:
-        genes_from_patacsdb = gene_names_from_patacsdb_csv(args.number)
+    genes_from_patacsdb = gene_names_from_patacsdb_csv(args.number)
 
-        variants_by_gene = get_variants_by_genes(dataset, genes_from_patacsdb)
+    @cached(action='load')
+    def cachable_variants_by_gene():
+        return get_variants_by_genes(dataset, genes_from_patacsdb)
 
-        transcripts_to_load = get_all_used_transcript_ids(variants_by_gene)
+    variants_by_gene = cachable_variants_by_gene()
 
-        cds_db = SequenceDB(
+    @cached(action='load')
+    def cachable_transcripts_to_load():
+        return get_all_used_transcript_ids(variants_by_gene)
+
+    transcripts_to_load = cachable_transcripts_to_load()
+
+    @cached(action='load')
+    def cachable_cds_db():
+        return SequenceDB(
             index_by='transcript',
             sequence_type='cds',
-            restrict_to=transcripts_to_load)
+            restrict_to=transcripts_to_load
+        )
 
-        cdna_db = SequenceDB(
+    cds_db = cachable_cds_db()
+
+    @cached(action='load')
+    def cachable_cdna_db():
+        return SequenceDB(
             index_by='transcript',
             sequence_type='cdna',
-            restrict_to=transcripts_to_load)
+            restrict_to=transcripts_to_load
+        )
 
-        if cache == 'save':
-            with open(cache_name, 'wb') as f:
-                to_pickle = (variants_by_gene, cds_db, cdna_db)
-                pickle.dump(to_pickle, f, protocol=pickle.HIGHEST_PROTOCOL)
-            o.print('variants data saved to cache')
+    cdna_db = cachable_cdna_db()
 
     variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
         cds_db, cdna_db, variants_by_gene
     )
 
-    if cache == 'load':
-        with open(cache_name + '-cna', 'rb') as f:
-            cna = pickle.load(f)
-        o.print('CNA loaded from cache')
-    else:
-        cna = CompleteCNA(
-            'cosmic/CosmicCompleteCNA.tsv',
-            restrict_to=cosmic_genes_to_load)
-        if cache == 'save':
-            with open(cache_name + '-cna', 'wb') as f:
-                pickle.dump(cna, f, protocol=pickle.HIGHEST_PROTOCOL)
+    if 'list_poly_aaa_variants' in args.report:
+        summarize_poly_aaa_variants(variants_by_gene_by_transcript)
 
-    summarize_poly_aaa_variants(variants_by_gene_by_transcript)
-    summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
+    if 'poly_aaa_vs_expression' in args.report:
+        poly_aaa_vs_expression(variants_by_gene_by_transcript)
+
+    if 'copy_number_expression' in args.report:
+        @cached(action=cache)
+        def cachable_cna():
+            return CompleteCNA(
+                'cosmic/CosmicCompleteCNA.tsv',
+                restrict_to=cosmic_genes_to_load
+            )
+
+        cna = cachable_cna()
+        summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
 
 if __name__ == '__main__':
 
@@ -659,6 +699,10 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Find SNPs')
     parser.add_argument('--show', choices=to_show)
     parser.add_argument('--cache', choices=cache_actions)
+    parser.add_argument('--report', nargs='+', choices=[
+        'list_poly_aaa_variants', 'copy_number_expression',
+        'poly_aaa_vs_expression'
+    ])
     parser.add_argument('--profile', action='store_true')
     parser.add_argument(
         '--dataset',
