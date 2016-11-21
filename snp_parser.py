@@ -198,7 +198,6 @@ def get_reference(variant, databases, offset):
 
 def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
-    print('Debug')
     offset = 20
 
     o.mute()
@@ -391,13 +390,9 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             list(correct_variants)
         )
 
-
-        for variant in correct_variants:
-            print(variant.vcf_data.INFO, type(variant.vcf_data.INFO))
-
         cosmic_genes_to_load.update(
             [
-                variant.vcf_data.INFO['GENE']
+                variant.vcf_data.INFO['GENE'][0]
                 for variant in correct_variants
             ]
         )
@@ -414,7 +409,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             # have a canonical transcript, at least it is the best guess), eg.:
             # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
 
-            gene_transcript_id = variant.vcf_data.INFO['GENE']
+            gene_transcript_id = variant.vcf_data.INFO['GENE'][0]
             transcript_id = gene_transcript_id
 
             try:
