@@ -66,7 +66,7 @@ git clone https://github.com/krassowski/biomart
 Other dependencies (vcf and tabix parser) might be installed easily with use of pip:
 
 ```
-pip install pyvcf pysam requests
+pip install pyvcf pysam requests tqdm
 ```
 
 You will also need to have `samtools` or at least `htslib` installed.
