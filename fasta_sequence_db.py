@@ -96,6 +96,7 @@ class SequenceDB(BasicSequenceDB):
         if not raw_start or not raw_end:
             return None
         seq = None
+
         if raw_start and raw_end and self.has(name):
             start, end = self.parse_coordinates(raw_start, raw_end)
             whole_seq = self.get(name)
@@ -103,16 +104,21 @@ class SequenceDB(BasicSequenceDB):
             if strand == -1:
                 whole_seq = complement(whole_seq)[::-1]
                 start, end = len(whole_seq) - end, len(whole_seq) - start
+
             cut_from = start - offset
             cut_to = end + offset
-            seq = whole_seq[cut_from if cut_from >= 0 else 0:cut_to if cut_to >=0 else 0]
+
+            seq = whole_seq[max(cut_from, 0):max(cut_to, 0)]
             # if we are on the edge of sequence
             if cut_from < 0:
                 seq = '-' * (-cut_from) + seq
             if cut_to > len(whole_seq):
                 seq += '-' * (cut_to - len(whole_seq))
 
-            assert len(seq) == offset * 2 + int(raw_end) - int(raw_start) + 1
+            try:
+                assert len(seq) == offset * 2 + int(raw_end) - int(raw_start) + 1
+            except AssertionError:
+                print(seq, len(seq), offset, offset * 2 + int(raw_end) - int(raw_start) + 1, raw_start, raw_end)
 
         return seq
 

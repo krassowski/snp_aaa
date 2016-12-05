@@ -7,11 +7,12 @@ import vcf
 import os
 import sys
 from poly_a import poly_a
-from fasta_sequence_db import SequenceDB, FastSequenceDB
+from fasta_sequence_db import SequenceDB
+from fasta_sequence_db import FastSequenceDB
+from cache import cached
 from output_formatter import OutputFormatter
 from biomart_data import BiomartData, BiomartDataset
 from cna_by_transcript import CompleteCNA
-import cPickle as pickle
 
 
 o = OutputFormatter()
@@ -601,147 +602,97 @@ def get_all_used_transcript_ids(variants_by_gene):
     return transcripts_ids
 
 
-def cached(action='load'):
-    """Makes caching a pleasure. Use as a decorator."""
-    def decorator(generating_function):
-        def we_all_like_nested_closures(*args, **kwargs):
-            display_name = generating_function.__name__.replace('_', ' ').title()
-            cache_name = '.cache:' + generating_function.__name__
-
-            if action == 'load':
-                with open(cache_name, 'rb') as f:
-                    variable = pickle.load(f)
-                o.print('"' + display_name + '" data loaded from cache')
-            else:
-                variable = generating_function(*args, **kwargs)
-                if action == 'save':
-                    with open(cache_name, 'wb') as f:
-                        pickle.dump(variable, f, protocol=pickle.HIGHEST_PROTOCOL)
-            return variable
-        return we_all_like_nested_closures
-    return decorator
-
-
-from berkley_hash_set import BerkleyHashSet
-import gzip
-from tqdm import tqdm
-
-
-class ExpressionDatabase(BerkleyHashSet):
-
-    def mutation_to_key(self, mutation):
-
-        return '\t'.join(map(str, [
-            mutation.chrom, mutation.pos, mutation.ref, mutation.alt
-        ]))
-
-    def __getitem__(self, mutation_key):
-        value = super(ExpressionDatabase, self).__getitem__(
-            mutation_key
-        )
-        return value
-
-    def __setitem__(self, mutation_key, value):
-
-        return super(ExpressionDatabase, self).__setitem__(
-            mutation_key, value
-        )
-
-
-from collections import namedtuple
-
-def convert(dictionary):
-    return namedtuple('GenericDict', dictionary.keys())(**dictionary)
-
-v = convert({'chrom': 1, 'pos': 787151, 'ref': 'G', 'alt': 'A'})
-
-
 def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action):
+
+    from expression_database import ExpressionDatabase
+    from expression_database import import_expression_data
 
     bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
 
-    def import_expression_data():
-        print('Importing expression data:')
-        tissues = [
-            'Adipose_Subcutaneous',
-            'Adipose_Visceral_Omentum',
-            'Adrenal_Gland',
-            'Artery_Aorta',
-            'Artery_Coronary',
-            'Artery_Tibial',
-            'Brain_Anterior_cingulate_cortex_BA24',
-            'Brain_Caudate_basal_ganglia',
-            'Brain_Cerebellar_Hemisphere',
-            'Brain_Cerebellum',
-            'Brain_Cortex',
-            'Brain_Frontal_Cortex_BA9',
-            'Brain_Hippocampus',
-            'Brain_Hypothalamus',
-            'Brain_Nucleus_accumbens_basal_ganglia',
-            'Brain_Putamen_basal_ganglia',
-            'Breast_Mammary_Tissue',
-            'Cells_EBV-transformed_lymphocytes',
-            'Cells_Transformed_fibroblasts',
-            'Colon_Sigmoid',
-            'Colon_Transverse',
-            'Esophagus_Gastroesophageal_Junction',
-            'Esophagus_Mucosa',
-            'Esophagus_Muscularis',
-            'Heart_Atrial_Appendage',
-            'Heart_Left_Ventricle',
-            'Liver',
-            'Lung',
-            'Muscle_Skeletal',
-            'Nerve_Tibial',
-            'Ovary',
-            'Pancreas',
-            'Pituitary',
-            'Prostate',
-            'Skin_Not_Sun_Exposed_Suprapubic',
-            'Skin_Sun_Exposed_Lower_leg',
-            'Small_Intestine_Terminal_Ileum',
-            'Spleen',
-            'Stomach',
-            'Testis',
-            'Thyroid',
-            'Uterus',
-            'Vagina',
-            'Whole_Blood'
-        ]
-        for tissue in tissues:
-            file_name = 'GTEx_Analysis_v6p_eQTL/' + tissue + '_Analysis.v6p.signif_snpgene_pairs.txt.gz'
-            print('Loading', file_name)
-            with gzip.open(file_name) as file_object:
-                header = {
-                    name: position
-                    for position, name in enumerate(
-                        next(file_object).split()
-                    )
-                }
-                slope_pos = header['slope']
-                variant_id_pos = header['slope']
-
-                for line in tqdm(file_object):
-                    line = line.split()
-                    variant_id = line[variant_id_pos]
-                    slope = line[slope_pos]
-                    bdb[variant_id].add(tissue + ',' + slope)
-
     if cache_action == 'save':
-        import_expression_data()
+        import_expression_data(bdb)
 
-    print(bdb['1_693731_A_G_b37'])
-    """Sketch:
-    for tissue in tissues:
-        # e.g. zgrep Lung_Analysis.v6p.signif_snpgene_pairs.txt.gz 1_787151_G_A_b37
-        zgrep {tissue}_Analysis.v6p.egenes.txt.gz {chr}_{pos}_{ref}_{alt}_b37
-        # I can also use some kind of database. The file is not big, so berkley should do the trick
+    def is_length_difference_big(l1, l2):
+        """Is the first list much longer than the second?"""
+        len1 = len(l1)
+        len2 = len(l2)
+        assert len1 > len2
 
-        # then: from results get effect (slope) and p-value. if for all tissues effect is in the same direction,
-        # set variant.expression_efect = direction.
-        # else set "not sure" and show all such cases to manual analysis
-    """
-    pass
+        if len2 == 0 or len1 / len2 > 10:
+            return True
+
+    gtex_report = []
+    gtex_report_by_genes = []
+
+    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+
+        # treat all variants the same way - just remove duplicates
+        variants = get_all_variants(variants_by_transcript, gene)
+
+        for variant in variants:
+
+            expression_data = bdb.get_by_mutation(variant)
+
+            expression_up = []
+            expression_down = []
+
+            for tissue, slope in expression_data:
+                if slope > 0:
+                    expression_up += [tissue]
+                elif slope < 0:
+                    expression_down += [tissue]
+
+            # is this rather up?
+            if len(expression_up) > len(expression_down):
+                # is this certainly up?
+                if is_length_difference_big(expression_up, expression_down):
+                    variant.expression_trend = 'up'
+                else:
+                    variant.expression_trend = 'rather_up'
+            # is this rather down?
+            elif len(expression_down) > len(expression_up):
+                # is this certainly down?
+                if is_length_difference_big(expression_down, expression_up):
+                    variant.expression_trend = 'down'
+                else:
+                    variant.expression_trend = 'rather_down'
+            # is unchanged?
+            else:
+                variant.expression_trend = 'constant'
+
+            variant.expression_up_in_X_cases = len(expression_up)
+            variant.expression_down_in_X_cases = len(expression_down)
+
+
+            gtex_report += [
+                variant.refsnp_id,
+                variant.expression_up_in_X_cases,
+                variant.expression_down_in_X_cases,
+                variant.expression_trend,
+                variant.poly_aaa_increase,
+                variant.poly_aaa_decrease,
+                variant.poly_aaa_change
+            ]
+
+        gtex_report_by_genes += [
+            gene,
+            sum('up' in v.expression_trend for v in variants),
+            sum('down' in v.expression_trend for v in variants),
+            sum(v.poly_aaa_increase for v in variants),
+            sum(v.poly_aaa_decrease for v in variants)
+        ]
+
+    report(
+        'Expression table for variants (based on data from GTEx)',
+        ['\t'.join(map(str, line)) for line in gtex_report],
+        'variant\texpression+\texpression-\ttrend\taaa+\taaa-\taaa change'
+    )
+
+    report(
+        'Expression table for genes (based on data from GTEx)',
+        ['\t'.join(map(str, line)) for line in gtex_report],
+        'gene\texpression+\texpression-\t#aaa+\t#aaa-'
+    )
 
 
 def main(args, dataset):
@@ -822,24 +773,28 @@ if __name__ == '__main__':
         '--dataset',
         type=str,
         help='name of biomart dataset to be used, eg. hsapiens_snp',
-        default='hsapiens_snp_som')
+        default='hsapiens_snp_som'
+    )
     parser.add_argument(
         '--biomart',
         type=str,
         help='URL of biomart to be used. '
              'For ensembl mirrors replace www with: uswest, useast or asia',
-        default='http://www.ensembl.org/biomart')
+        default='http://www.ensembl.org/biomart'
+    )
     parser.add_argument(
         '-n',
         '--number',
         type=int,
         help='Number of genes to analyze',
-        default=None)
+        default=None
+    )
     parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
-        help='increase output verbosity')
+        help='increase output verbosity'
+    )
 
     subcommands = ['show', 'cache', 'profile']
     arguments = ['--' + a if a in subcommands else a for a in sys.argv[1:]]
