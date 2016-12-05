@@ -13,6 +13,7 @@ from cache import cached
 from output_formatter import OutputFormatter
 from biomart_data import BiomartData, BiomartDataset
 from cna_by_transcript import CompleteCNA
+from tqdm import tqdm
 
 
 o = OutputFormatter()
@@ -388,7 +389,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
     cosmic_genes_to_load = set()
 
-    for gene, variants in variants_by_gene.iteritems():
+    for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
 
         # Just to be certain
         variants_unique_ids = set(variant.refsnp_id for variant in variants)
@@ -632,7 +633,7 @@ def get_all_used_transcript_ids(variants_by_gene):
     return transcripts_ids
 
 
-def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action):
+def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
 
     from expression_database import ExpressionDatabase
     from expression_database import import_expression_data
@@ -770,7 +771,7 @@ def main(args, dataset):
         summarize_poly_aaa_variants(variants_by_gene_by_transcript)
 
     if 'poly_aaa_vs_expression' in args.report:
-        poly_aaa_vs_expression(variants_by_gene_by_transcript)
+        poly_aaa_vs_expression(variants_by_gene_by_transcript, cache)
 
     if 'copy_number_expression' in args.report:
         @cached(action=cache)
