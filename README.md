@@ -143,4 +143,4 @@ You can run basic tests of poly_aaa module simply running it from command line (
 
 ## About
 
-The code in the repository was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
+The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
