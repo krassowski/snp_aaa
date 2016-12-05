@@ -5,5 +5,7 @@ cosmic/
 biomart/
 notatki/
 *.pyc
-.cache
+.cache:*
+*.pyo
+*.swp
 
