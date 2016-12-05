@@ -112,7 +112,12 @@ def get_variants_by_genes(dataset, gene_names):
 
             for known_variant in variants_by_gene[gene]:
                 if variant.refsnp_id == known_variant.refsnp_id:
-                    allowed = variant.ensembl_transcript_stable_id != known_variant.ensembl_transcript_stable_id
+                    allowed = (
+                        # ensembl_transcript_stable_id can differ among two
+                        # almost-identical variants
+                        variant.ensembl_transcript_stable_id !=
+                        known_variant.ensembl_transcript_stable_id
+                    )
                     # TODO: check that all other attributes are equal
                     assert allowed
                     break
@@ -335,8 +340,17 @@ def analyze_poly_a(variant, offset):
     mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + 1:]
     o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
 
-    has_aaa, before_len = poly_a(ref_seq, offset, len(ref_seq) - offset)
-    will_have, after_len = poly_a(mutated_seq, offset, len(mutated_seq) - offset)
+    has_aaa, before_len = poly_a(
+        ref_seq,
+        offset,
+        len(ref_seq) - offset
+    )
+
+    will_have, after_len = poly_a(
+        mutated_seq,
+        offset,
+        len(mutated_seq) - offset
+    )
 
     variant.has_poly_a = has_aaa
     variant.will_have_poly_a = will_have
@@ -384,7 +398,14 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
         all_variants_count += len(variants)
 
         for variant in variants:
-            analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl)
+            analyze_variant(
+                variant,
+                cds_db,
+                cdna_db,
+                dna_db,
+                vcf_cosmic,
+                vcf_ensembl
+            )
 
         # Remove variants with non-complete data
         correct_variants = filter(lambda variant: variant.correct, variants)
@@ -548,8 +569,15 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
 
         o.print(gene, 'with its', len(variants), 'variants analysed')
 
-        poly_a_variants = filter(lambda variant: variant.has_poly_a, variants)
-        poly_a_potential_variants = filter(lambda variant: variant.will_have_poly_a, variants)
+        poly_a_variants = filter(
+            lambda variant: variant.has_poly_a,
+            variants
+        )
+
+        poly_a_potential_variants = filter(
+            lambda variant: variant.will_have_poly_a,
+            variants
+        )
 
         # loss of poly_aaa, decrease in length (-1 per residue)
         decrease = 0
@@ -569,7 +597,9 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
 
         assert increase >= len(poly_a_potential_variants) - len(poly_a_variants)
 
-        cnv_aaa_report += [(gene, expression[0], expression[2], increase, decrease)]
+        cnv_aaa_report += [
+            (gene, expression[0], expression[2], increase, decrease)
+        ]
 
     report('no expression data for some transcripts', no_expression)
 
@@ -663,8 +693,7 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action):
             variant.expression_up_in_X_cases = len(expression_up)
             variant.expression_down_in_X_cases = len(expression_down)
 
-
-            gtex_report += [
+            gtex_report += [(
                 variant.refsnp_id,
                 variant.expression_up_in_X_cases,
                 variant.expression_down_in_X_cases,
@@ -672,15 +701,15 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action):
                 variant.poly_aaa_increase,
                 variant.poly_aaa_decrease,
                 variant.poly_aaa_change
-            ]
+            )]
 
-        gtex_report_by_genes += [
+        gtex_report_by_genes += [(
             gene,
             sum('up' in v.expression_trend for v in variants),
             sum('down' in v.expression_trend for v in variants),
             sum(v.poly_aaa_increase for v in variants),
             sum(v.poly_aaa_decrease for v in variants)
-        ]
+        )]
 
     report(
         'Expression table for variants (based on data from GTEx)',
@@ -753,6 +782,7 @@ def main(args, dataset):
 
         cna = cachable_cna()
         summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
+
 
 if __name__ == '__main__':
 
