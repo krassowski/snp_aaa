@@ -461,6 +461,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
     cosmic_genes_to_load = set()
 
     from multiprocessing import Pool
+    parsing_pool = Pool(maxtasksperchild=1)
     print('Parsing variants:')
     for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
 
@@ -471,7 +472,6 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
         all_variants_count += len(variants)
 
-        parsing_pool = Pool(maxtasksperchild=1)
         variants = parsing_pool.map(analyze_variant_here, variants)
         """
         for variant in variants:
