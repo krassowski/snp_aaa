@@ -397,12 +397,8 @@ def cachable_cdna_db():
         restrict_to=transcripts_to_load
     )
 
-
-def analyze_variant_here(variant):
-
-    cds_db = cachable_cds_db()
-    cdna_db = cachable_cdna_db()
-
+@cached(action='load')
+def cachable_dna_db():
     chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
     dna_db = {}
 
@@ -411,6 +407,17 @@ def analyze_variant_here(variant):
             sequence_type='dna',
             id_type='chromosome.' + chromosome
         )
+    return dna_db
+
+
+import gc
+
+def analyze_variant_here(variant):
+
+    dna_db = cachable_dna_db()
+    cds_db = cachable_cds_db()
+    cdna_db = cachable_cdna_db()
+
 
     vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
     vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
@@ -424,6 +431,8 @@ def analyze_variant_here(variant):
         vcf_ensembl
     )
 
+    del dna_db, cds_db, cdna_db, vcf_ensembl, vcf_cosmic
+
     return variant
 
 
@@ -435,7 +444,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
     ensembl uses 1-based coordinates:
     http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
     """
-
+    """
     chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
 
     dna_db = {}
@@ -444,7 +453,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             sequence_type='dna',
             id_type='chromosome.' + chromosome
         )
-
+    """
     variants_by_gene_by_transcript = {}
 
     all_variants_count = 0
@@ -462,7 +471,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
         all_variants_count += len(variants)
 
-        parsing_pool = Pool()
+        parsing_pool = Pool(maxtasksperchild=1)
         variants = parsing_pool.map(analyze_variant_here, variants)
         """
         for variant in variants:
@@ -475,6 +484,8 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
                 vcf_ensembl
             )
         """
+        gc.collect()
+
         # Remove variants with non-complete data
         correct_variants = filter(lambda variant: variant.correct, variants)
 
