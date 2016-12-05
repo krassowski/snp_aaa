@@ -13,6 +13,7 @@ from cache import cached
 from output_formatter import OutputFormatter
 from biomart_data import BiomartData, BiomartDataset
 from cna_by_transcript import CompleteCNA
+from tqdm import tqdm
 
 
 o = OutputFormatter()
@@ -361,42 +362,45 @@ def analyze_poly_a(variant, offset):
     variant.poly_aaa_decrease = variant.poly_aaa_after < variant.poly_aaa_before
 
 
+genes_from_patacsdb = gene_names_from_patacsdb_csv(None)
+
+dataset = BiomartDataset(
+    'http://www.ensembl.org/biomart',
+    name='hsapiens_snp_som'
+)
+
+@cached(action='load')
+def cachable_variants_by_gene():
+    return get_variants_by_genes(dataset, genes_from_patacsdb)
+
+variants_by_gene = cachable_variants_by_gene()
+
+@cached(action='load')
+def cachable_transcripts_to_load():
+    return get_all_used_transcript_ids(variants_by_gene)
+
+transcripts_to_load = cachable_transcripts_to_load()
+
+@cached(action='load')
+def cachable_cds_db():
+    return SequenceDB(
+        index_by='transcript',
+        sequence_type='cds',
+        restrict_to=transcripts_to_load
+    )
+
+@cached(action='load')
+def cachable_cdna_db():
+    return SequenceDB(
+        index_by='transcript',
+        sequence_type='cdna',
+        restrict_to=transcripts_to_load
+    )
+
+
 def analyze_variant_here(variant):
 
-    genes_from_patacsdb = gene_names_from_patacsdb_csv(None)
-
-    dataset = BiomartDataset('http://www.ensembl.org/biomart', name='hsapiens_snp_som')
-
-    @cached(action='load')
-    def cachable_variants_by_gene():
-        return get_variants_by_genes(dataset, genes_from_patacsdb)
-
-    variants_by_gene = cachable_variants_by_gene()
-
-    @cached(action='load')
-    def cachable_transcripts_to_load():
-        return get_all_used_transcript_ids(variants_by_gene)
-
-    transcripts_to_load = cachable_transcripts_to_load()
-
-    @cached(action='load')
-    def cachable_cds_db():
-        return SequenceDB(
-            index_by='transcript',
-            sequence_type='cds',
-            restrict_to=transcripts_to_load
-        )
-
     cds_db = cachable_cds_db()
-
-    @cached(action='load')
-    def cachable_cdna_db():
-        return SequenceDB(
-            index_by='transcript',
-            sequence_type='cdna',
-            restrict_to=transcripts_to_load
-        )
-
     cdna_db = cachable_cdna_db()
 
     chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
@@ -419,6 +423,8 @@ def analyze_variant_here(variant):
         vcf_cosmic,
         vcf_ensembl
     )
+
+    return variant
 
 
 def parse_variants(cds_db, cdna_db, variants_by_gene):
@@ -446,7 +452,8 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
     cosmic_genes_to_load = set()
 
     from multiprocessing import Pool
-    for gene, variants in variants_by_gene.iteritems():
+    print('Parsing variants:')
+    for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
 
         # Just to be certain
         variants_unique_ids = set(variant.refsnp_id for variant in variants)
@@ -456,7 +463,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
         all_variants_count += len(variants)
 
         parsing_pool = Pool()
-        parsing_pool.map(analyze_variant_here, variants)
+        variants = parsing_pool.map(analyze_variant_here, variants)
         """
         for variant in variants:
             analyze_variant(
@@ -811,7 +818,7 @@ def main(args, dataset):
             restrict_to=transcripts_to_load
         )
 
-    cds_db = cachable_cds_db()
+    #cds_db = cachable_cds_db()
 
     @cached(action='load')
     def cachable_cdna_db():
@@ -821,10 +828,10 @@ def main(args, dataset):
             restrict_to=transcripts_to_load
         )
 
-    cdna_db = cachable_cdna_db()
+    #cdna_db = cachable_cdna_db()
 
     variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
-        cds_db, cdna_db, variants_by_gene
+        1, 1, variants_by_gene
     )
 
     if 'list_poly_aaa_variants' in args.report:
