@@ -361,52 +361,53 @@ def analyze_poly_a(variant, offset):
     variant.poly_aaa_decrease = variant.poly_aaa_after < variant.poly_aaa_before
 
 
-
-dataset = BiomartDataset(BIOMART_URL, name='hsapiens_snp_som')
-
-@cached(action='load')
-def cachable_variants_by_gene():
-    return get_variants_by_genes(dataset, genes_from_patacsdb)
-
-variants_by_gene = cachable_variants_by_gene()
-
-@cached(action='load')
-def cachable_transcripts_to_load():
-    return get_all_used_transcript_ids(variants_by_gene)
-
-transcripts_to_load = cachable_transcripts_to_load()
-
-@cached(action='load')
-def cachable_cds_db():
-    return SequenceDB(
-        index_by='transcript',
-        sequence_type='cds',
-        restrict_to=transcripts_to_load
-    )
-
-cds_db = cachable_cds_db()
-
-@cached(action='load')
-def cachable_cdna_db():
-    return SequenceDB(
-        index_by='transcript',
-        sequence_type='cdna',
-        restrict_to=transcripts_to_load
-    )
-
-cdna_db = cachable_cdna_db()
-
-chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
-dna_db = {}
-
-for chromosome in chromosomes:
-    dna_db[chromosome] = FastSequenceDB(
-        sequence_type='dna',
-        id_type='chromosome.' + chromosome
-    )
-
-
 def analyze_variant_here(variant):
+
+    genes_from_patacsdb = gene_names_from_patacsdb_csv(None)
+
+    dataset = BiomartDataset('http://www.ensembl.org/biomart', name='hsapiens_snp_som')
+
+    @cached(action='load')
+    def cachable_variants_by_gene():
+        return get_variants_by_genes(dataset, genes_from_patacsdb)
+
+    variants_by_gene = cachable_variants_by_gene()
+
+    @cached(action='load')
+    def cachable_transcripts_to_load():
+        return get_all_used_transcript_ids(variants_by_gene)
+
+    transcripts_to_load = cachable_transcripts_to_load()
+
+    @cached(action='load')
+    def cachable_cds_db():
+        return SequenceDB(
+            index_by='transcript',
+            sequence_type='cds',
+            restrict_to=transcripts_to_load
+        )
+
+    cds_db = cachable_cds_db()
+
+    @cached(action='load')
+    def cachable_cdna_db():
+        return SequenceDB(
+            index_by='transcript',
+            sequence_type='cdna',
+            restrict_to=transcripts_to_load
+        )
+
+    cdna_db = cachable_cdna_db()
+
+    chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
+    dna_db = {}
+
+    for chromosome in chromosomes:
+        dna_db[chromosome] = FastSequenceDB(
+            sequence_type='dna',
+            id_type='chromosome.' + chromosome
+        )
+
     vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
     vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
 
@@ -692,7 +693,7 @@ def get_all_used_transcript_ids(variants_by_gene):
     return transcripts_ids
 
 
-def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action):
+def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
 
     from expression_database import ExpressionDatabase
     from expression_database import import_expression_data
@@ -830,7 +831,7 @@ def main(args, dataset):
         summarize_poly_aaa_variants(variants_by_gene_by_transcript)
 
     if 'poly_aaa_vs_expression' in args.report:
-        poly_aaa_vs_expression(variants_by_gene_by_transcript)
+        poly_aaa_vs_expression(variants_by_gene_by_transcript, cache)
 
     if 'copy_number_expression' in args.report:
         @cached(action=cache)
