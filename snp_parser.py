@@ -361,52 +361,55 @@ def analyze_poly_a(variant, offset):
     variant.poly_aaa_decrease = variant.poly_aaa_after < variant.poly_aaa_before
 
 
+
+dataset = BiomartDataset(BIOMART_URL, name='hsapiens_snp_som')
+
+@cached(action='load')
+def cachable_variants_by_gene():
+    return get_variants_by_genes(dataset, genes_from_patacsdb)
+
+variants_by_gene = cachable_variants_by_gene()
+
+@cached(action='load')
+def cachable_transcripts_to_load():
+    return get_all_used_transcript_ids(variants_by_gene)
+
+transcripts_to_load = cachable_transcripts_to_load()
+
+@cached(action='load')
+def cachable_cds_db():
+    return SequenceDB(
+        index_by='transcript',
+        sequence_type='cds',
+        restrict_to=transcripts_to_load
+    )
+
+cds_db = cachable_cds_db()
+
+@cached(action='load')
+def cachable_cdna_db():
+    return SequenceDB(
+        index_by='transcript',
+        sequence_type='cdna',
+        restrict_to=transcripts_to_load
+    )
+
+cdna_db = cachable_cdna_db()
+
+chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
+dna_db = {}
+
+for chromosome in chromosomes:
+    dna_db[chromosome] = FastSequenceDB(
+        sequence_type='dna',
+        id_type='chromosome.' + chromosome
+    )
+
+
 def analyze_variant_here(variant):
-
-    dataset = BiomartDataset(BIOMART_URL, name='hsapiens_snp_som')
-
-    @cached(action='load')
-    def cachable_variants_by_gene():
-        return get_variants_by_genes(dataset, genes_from_patacsdb)
-
-    variants_by_gene = cachable_variants_by_gene()
-
-    @cached(action='load')
-    def cachable_transcripts_to_load():
-        return get_all_used_transcript_ids(variants_by_gene)
-
-    transcripts_to_load = cachable_transcripts_to_load()
-
-    @cached(action='load')
-    def cachable_cds_db():
-        return SequenceDB(
-            index_by='transcript',
-            sequence_type='cds',
-            restrict_to=transcripts_to_load
-        )
-
-    cds_db = cachable_cds_db()
-
-    @cached(action='load')
-    def cachable_cdna_db():
-        return SequenceDB(
-            index_by='transcript',
-            sequence_type='cdna',
-            restrict_to=transcripts_to_load
-        )
-
-    cdna_db = cachable_cdna_db()
-
-    chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
     vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
     vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
-    dna_db = {}
 
-    for chromosome in chromosomes:
-        dna_db[chromosome] = FastSequenceDB(
-            sequence_type='dna',
-            id_type='chromosome.' + chromosome
-        )
     analyze_variant(
         variant,
         cds_db,
