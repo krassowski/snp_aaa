@@ -11,10 +11,10 @@ from fasta_sequence_db import SequenceDB
 from fasta_sequence_db import FastSequenceDB
 from cache import cached
 from output_formatter import OutputFormatter
-from biomart_data import BiomartData, BiomartDataset
+from biomart_data import BiomartData
+from biomart_data import BiomartDataset
 from cna_by_transcript import CompleteCNA
 from tqdm import tqdm
-
 
 o = OutputFormatter()
 
@@ -131,22 +131,52 @@ def get_variants_by_genes(dataset, gene_names):
 
     return variants_by_gene
 
+"""
+def get_hgnc(variant):
 
-def get_vcf_by_variant(vcf, pos, variant):
+    data = BiomartData(
+        dataset=BiomartDataset(BIOMART_URL, name='hsapiens_gene_ensembl'),
+        attributes=['hgnc_symbol'],
+        filters={
+            'ensembl_transcript_id': variant.ensembl_transcript_stable_id
+        }
+    )
+
+    if not data:
+        raise ValueError('Unknown HGNC symbol for ' + variant.ensembl_transcript_stable_id)
+
+    return [
+        item.hgnc_symbol
+        for item in data
+    ]
+"""
+
+
+from berkley_hash_set import BerkleyHashSet
+
+
+def get_hgnc(variant, hgnc_by_ensembl):
+    return hgnc_by_ensembl[variant.ensembl_transcript_stable_id]
+
+
+
+def get_vcf_by_variant(vcf, pos, variant, hgnc_by_ensembl):
 
     if variant.refsnp_source == 'COSMIC':
         record_id = variant.refsnp_id
     else:
 
-        data = BiomartData(
-            dataset=BiomartDataset(BIOMART_URL, name='hsapiens_gene_ensembl'),
-            attributes=['hgnc_symbol'],
-            filters={
-                'ensembl_transcript_id': variant.ensembl_transcript_stable_id
-            }
-        )
+        if variant.cds_start is None:
+            raise ValueError('No cds_start data for ' + variant.ensembl_transcript_stable_id)
 
-        name = list(data)[0].hgnc_symbol
+        names = get_hgnc(variant, hgnc_by_ensembl)
+        names_list = [name for name in names]
+        if len(names_list) > 1:
+            print('Multiple HGNC identifiers for transcript: ' + variant.ensembl_transcript_stable_id)
+        elif len(names_list) == 0:
+            raise ValueError('No HGNC for transcript: '+ variant.ensembl_transcript_stable_id)
+        else:
+            name = names_list[0]
 
         allele = variant.allele.replace('/', '>')
         record_id = ''.join([name, ':c.', variant.cds_start, allele])
@@ -203,7 +233,7 @@ def get_reference(variant, databases, offset):
     return reference_nuc, reference_seq
 
 
-def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
+def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, hgnc_by_ensembl):
 
     offset = 20
 
@@ -313,7 +343,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl):
 
     main_vcf = vcf_cosmic if variant.refsnp_source == 'COSMIC' else vcf_ensembl
 
-    vcf_data = get_vcf_by_variant(main_vcf, pos, variant)
+    vcf_data = get_vcf_by_variant(main_vcf, pos, variant, hgnc_by_ensembl)
 
     if not vcf_data:
         print('Lack of VCF data for', variant.refsnp_id, 'variant. Skipping')
@@ -411,6 +441,9 @@ def cachable_dna_db():
 
 
 import gc
+import traceback
+import sys
+
 
 def analyze_variant_here(variant):
 
@@ -418,18 +451,25 @@ def analyze_variant_here(variant):
     cds_db = cachable_cds_db()
     cdna_db = cachable_cdna_db()
 
-
     vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
     vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
 
-    analyze_variant(
-        variant,
-        cds_db,
-        cdna_db,
-        dna_db,
-        vcf_cosmic,
-        vcf_ensembl
-    )
+    hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
+
+    try:
+        analyze_variant(
+            variant,
+            cds_db,
+            cdna_db,
+            dna_db,
+            vcf_cosmic,
+            vcf_ensembl,
+            hgnc_by_ensembl
+        )
+
+    except Exception:
+        traceback.print_exc()
+        variant.correct = False
 
     del dna_db, cds_db, cdna_db, vcf_ensembl, vcf_cosmic
 
@@ -537,7 +577,7 @@ def report(name, data, comment=None):
     the report. The data should be an iterable collection of strings.
     Empty reports will not be created.
     """
-    directory = 'reports'
+    directory = 'reports_three'
 
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -589,7 +629,7 @@ def select_poly_a_related_variants(variants):
     ]
 
 
-def summarize_poly_aaa_variants(variants_by_gene_by_transcript, cna):
+def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
 
     variant_aaa_report = []
 
@@ -602,17 +642,17 @@ def summarize_poly_aaa_variants(variants_by_gene_by_transcript, cna):
 
         variant_aaa_report += ['# ' + gene]
         variant_aaa_report += [
-            '\t'.join([
+            '\t'.join(map(str, [
                 variant.refsnp_id,
                 variant.poly_aaa_increase,
                 variant.poly_aaa_decrease,
                 variant.poly_aaa_change
-            ])
+            ]))
             for variant in poly_a_related_variants
         ]
 
     report(
-        'poly a increase/decrease by variants',
+        'poly aaa increase and decrease by variants',
         variant_aaa_report,
         'snp_id\tpoly_aaa_increase\tpoly_aaa_decrease\tpoly_aaa_change'
     )
@@ -844,23 +884,44 @@ def main(args, dataset):
     variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
         1, 1, variants_by_gene
     )
+    import traceback
+    import sys
 
-    if 'list_poly_aaa_variants' in args.report:
-        summarize_poly_aaa_variants(variants_by_gene_by_transcript)
+    try:
+        import cPickle as pickle
+        with open('.variants_by_gene_by_transcript.cache', 'wb') as f:
+            pickle.dump(variants_by_gene_by_transcript, f, protocol=pickle.HIGHEST_PROTOCOL)
+        with open('.cosmic_genes_to_load.cache', 'wb') as f:
+            pickle.dump(cosmic_genes_to_load, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        traceback.print_exc()
 
-    if 'poly_aaa_vs_expression' in args.report:
-        poly_aaa_vs_expression(variants_by_gene_by_transcript, cache)
+    try:
+        if 'list_poly_aaa_variants' in args.report:
+            summarize_poly_aaa_variants(variants_by_gene_by_transcript)
+    except Exception:
+        traceback.print_exc()
 
-    if 'copy_number_expression' in args.report:
-        @cached(action=cache)
-        def cachable_cna():
-            return CompleteCNA(
-                'cosmic/CosmicCompleteCNA.tsv',
-                restrict_to=cosmic_genes_to_load
-            )
+    try:
+        if 'copy_number_expression' in args.report:
+            # TODO to cache again later
+            @cached(action='save')
+            def cachable_cna():
+                return CompleteCNA(
+                    'cosmic/CosmicCompleteCNA.tsv',
+                    restrict_to=cosmic_genes_to_load
+                )
 
-        cna = cachable_cna()
-        summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
+            cna = cachable_cna()
+            summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
+    except Exception:
+        traceback.print_exc()
+
+    try:
+        if 'poly_aaa_vs_expression' in args.report:
+            poly_aaa_vs_expression(variants_by_gene_by_transcript, cache)
+    except Exception:
+        traceback.print_exc()
 
 
 if __name__ == '__main__':
