@@ -160,11 +160,18 @@ def get_hgnc(variant, hgnc_by_ensembl):
 
 
 
-def get_vcf_by_variant(vcf, pos, variant, hgnc_by_ensembl):
+def get_vcf_by_variant(pos, variant):
 
     if variant.refsnp_source == 'COSMIC':
+        vcf_reader = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
         record_id = variant.refsnp_id
+    elif variant.refsnp_source == 'dbSNP':
+        vcf_reader = vcf.Reader(filename='ncbi/00-All.vcf.gz')
+        record_id = variant.refsnp_id
+        print('Using record_id: ' + record_id)
     else:
+        vcf_reader = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
+        hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
 
         if variant.cds_start is None:
             raise ValueError('No cds_start data for ' + variant.ensembl_transcript_stable_id)
@@ -181,7 +188,7 @@ def get_vcf_by_variant(vcf, pos, variant, hgnc_by_ensembl):
         allele = variant.allele.replace('/', '>')
         record_id = ''.join([name, ':c.', variant.cds_start, allele])
 
-    return get_vcf_by_id(vcf, pos, record_id)
+    return get_vcf_by_id(vcf_reader, pos, record_id)
 
 
 def get_vcf_by_id(vcf, pos, record_id):
@@ -233,7 +240,7 @@ def get_reference(variant, databases, offset):
     return reference_nuc, reference_seq
 
 
-def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, hgnc_by_ensembl):
+def analyze_variant(variant, cds_db, cdna_db, dna_db):
 
     offset = 20
 
@@ -341,9 +348,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, vcf_cosmic, vcf_ensembl, h
     variant.sequence = ref_seq
     o.print('Context: ' + show_pos_with_context(ref_seq, offset, -offset))
 
-    main_vcf = vcf_cosmic if variant.refsnp_source == 'COSMIC' else vcf_ensembl
-
-    vcf_data = get_vcf_by_variant(main_vcf, pos, variant, hgnc_by_ensembl)
+    vcf_data = get_vcf_by_variant(pos, variant)
 
     if not vcf_data:
         print('Lack of VCF data for', variant.refsnp_id, 'variant. Skipping')
@@ -451,27 +456,22 @@ def analyze_variant_here(variant):
     cds_db = cachable_cds_db()
     cdna_db = cachable_cdna_db()
 
-    vcf_ensembl = vcf.Reader(filename='ensembl/Homo_sapiens_somatic.vcf.gz')
-    vcf_cosmic = vcf.Reader(filename='cosmic/CosmicCodingMuts.vcf.gz.bgz')
-
-    hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
-
     try:
         analyze_variant(
             variant,
             cds_db,
             cdna_db,
-            dna_db,
-            vcf_cosmic,
-            vcf_ensembl,
-            hgnc_by_ensembl
+            dna_db
+            # vcf_cosmic,
+            # vcf_ensembl,
+            # hgnc_by_ensembl
         )
 
     except Exception:
         traceback.print_exc()
         variant.correct = False
 
-    del dna_db, cds_db, cdna_db, vcf_ensembl, vcf_cosmic
+    del dna_db, cds_db, cdna_db
 
     return variant
 
