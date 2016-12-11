@@ -17,7 +17,7 @@ The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1
 #### Data retrieval
 
 * Variants' names were obtained from Ensembl with use of Biomart API, with restrict to hsapiens_snp_som dataset (somatic mutations only),
-* the variant's alleles data were taken from VCF files from two sources: [Ensembl](ftp://ftp.ensembl.org/pub/release-84/variation/vcf/homo_sapiens/) and [COSMIC](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v77/VCF/CosmicCodingMuts.vcf.gz),
+* the variant's alleles data were taken from VCF files from three sources: [Ensembl](ftp://ftp.ensembl.org/pub/release-84/variation/vcf/homo_sapiens/), [COSMIC](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v77/VCF/CosmicCodingMuts.vcf.gz) and [NCBI](ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b146_GRCh38p2/VCF/00-All.vcf.gz)  [tabix](ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b146_GRCh38p2/VCF/00-All.vcf.gz.tbi),
 * gene sequences (also from Ensembl) was downloaded as [chromosome-grouped DNA](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/dna/), [CDS](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/cds/) and [cDNA](ftp://ftp.ensembl.org/pub/release-84/fasta/homo_sapiens/cdna/) FASTA files.
 * from COSMIC following data were downloaded:
     * [gene expression level 3 data](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v77/CosmicCompleteGeneExpression.tsv.gz) - from the TCGA portal
