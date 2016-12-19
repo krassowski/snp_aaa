@@ -57,9 +57,19 @@ class ExpressionDatabase(BerkleyHashSet):
 
     def get_by_mutation(self, mutation):
 
-        return '\t'.join(map(str, [
-            mutation.chrom, mutation.pos, mutation.ref, mutation.alt
-        ]))
+        key = '_'.join(map(str, [
+            mutation.chr_name,
+            mutation.chrom_start - 1,   # use 0 based
+            mutation.vcf_data.REF,
+            mutation.vcf_data.ALT[0]
+        ])) + '_b37'
+        print(key)
+        data = self[key]
+
+        return [
+            datum.split(',')
+            for datum in data
+        ]
 
     def __getitem__(self, mutation_key):
         value = super(ExpressionDatabase, self).__getitem__(
@@ -107,9 +117,9 @@ def import_expression_data(
             get_slope = itemgetter(slope_pos)
 
             for line in tqdm(file_object):
-                line = line.split()
-                variant_id = line[variant_id_pos]
-                slope = line[slope_pos]
+                data = line.split()
+                variant_id = get_variant(data)
+                slope = get_slope(data)
                 bdb[variant_id].add(tissue_name + ',' + slope)
 
 

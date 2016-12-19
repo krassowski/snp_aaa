@@ -12,12 +12,12 @@ def cached(action='load'):
             if action == 'load':
                 with open(cache_name, 'rb') as f:
                     variable = pickle.load(f)
-                # print('"' + display_name + '" data loaded from cache')
+                print('"' + display_name + '" data loaded from cache')
             else:
                 print('Generating "' + display_name + '"...')
                 variable = generating_function(*args, **kwargs)
                 if action == 'save':
-                    # print('"' + display_name + '" saved to cache')
+                    print('"' + display_name + '" saved to cache')
                     with open(cache_name, 'wb') as f:
                         pickle.dump(variable, f, protocol=pickle.HIGHEST_PROTOCOL)
             return variable

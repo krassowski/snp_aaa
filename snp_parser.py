@@ -15,6 +15,10 @@ from biomart_data import BiomartData
 from biomart_data import BiomartDataset
 from cna_by_transcript import CompleteCNA
 from tqdm import tqdm
+from berkley_hash_set import BerkleyHashSet
+import gc
+import traceback
+
 
 o = OutputFormatter()
 
@@ -52,10 +56,10 @@ class VariantsData(BiomartData):
         filters.update({
             'so_parent_name':
                 [
+                    'protein_altering_variant',   # inframe + frameshift
                     'synonymous_variant',
                     'missense_variant',
-                    'stop_gained',
-                    'coding_sequence_variant'
+                    'frameshift_variant'
                 ]
         })
         super(self.__class__, self).__init__(dataset, attributes, filters)
@@ -131,33 +135,9 @@ def get_variants_by_genes(dataset, gene_names):
 
     return variants_by_gene
 
-"""
-def get_hgnc(variant):
-
-    data = BiomartData(
-        dataset=BiomartDataset(BIOMART_URL, name='hsapiens_gene_ensembl'),
-        attributes=['hgnc_symbol'],
-        filters={
-            'ensembl_transcript_id': variant.ensembl_transcript_stable_id
-        }
-    )
-
-    if not data:
-        raise ValueError('Unknown HGNC symbol for ' + variant.ensembl_transcript_stable_id)
-
-    return [
-        item.hgnc_symbol
-        for item in data
-    ]
-"""
-
-
-from berkley_hash_set import BerkleyHashSet
-
 
 def get_hgnc(variant, hgnc_by_ensembl):
     return hgnc_by_ensembl[variant.ensembl_transcript_stable_id]
-
 
 
 def get_vcf_by_variant(pos, variant):
@@ -174,14 +154,19 @@ def get_vcf_by_variant(pos, variant):
         hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
 
         if variant.cds_start is None:
-            raise ValueError('No cds_start data for ' + variant.ensembl_transcript_stable_id)
+            raise ValueError(
+                'No cds_start data for ' + variant.ensembl_transcript_stable_id
+            )
 
         names = get_hgnc(variant, hgnc_by_ensembl)
         names_list = [name for name in names]
         if len(names_list) > 1:
             print('Multiple HGNC identifiers for transcript: ' + variant.ensembl_transcript_stable_id)
         elif len(names_list) == 0:
-            raise ValueError('No HGNC for transcript: '+ variant.ensembl_transcript_stable_id)
+            raise ValueError(
+                'No HGNC for transcript: ' +
+                variant.ensembl_transcript_stable_id
+            )
         else:
             name = names_list[0]
 
@@ -203,79 +188,128 @@ def get_vcf_by_id(vcf, pos, record_id):
     return vcf_data
 
 
-def ref_seq_len(src, ref):
-    if src not in ref:
-        return 0
-    return len(ref[src].strip('-'))
+def get_reference_seq(variant, databases, offset):
 
-
-def get_reference(variant, databases, offset):
-
-    reference_nuc = {}
     reference_seq = {}
 
     transcript_id = variant.ensembl_transcript_stable_id
     strand = int(variant.ensembl_transcript_chrom_strand)
 
     for db in databases:
+        seq = ''
         src = db.sequence_type
 
         try:
-            start, end = variant.get(src + '_start'), variant.get(src + '_end')
+            start = variant.get(src + '_start')
+            end = variant.get(src + '_end')
         except IndexError:
-            o.print('Lack of', src, 'coordinates for variant:',
-                    variant.refsnp_id, 'in context of',
-                    transcript_id)
+            #  print(
+            #     'Lack of', src, 'coordinates for variant:',
+            #     variant.refsnp_id, 'in context of',
+            #     transcript_id
+            # )
             continue
 
-        seq = db.fetch(transcript_id, strand, start, end, offset)
+        if src == 'dna':
+            try:
+                chrom = db[variant.chr_name]
+                seq = chrom.fetch(start, end, offset)
+            except KeyError as e:
+                print('Unknown chromosome', variant.chr_name)
+                raise e
+        else:
+            seq = db.fetch(transcript_id, strand, start, end, offset)
 
-        if not db.has(transcript_id) or not seq:
-            o.print('Lack of transcript in', src)
-            continue
-
-        reference_nuc[src] = seq[offset:-offset]
         reference_seq[src] = seq
 
-    return reference_nuc, reference_seq
+    return reference_seq
 
 
-def analyze_variant(variant, cds_db, cdna_db, dna_db):
+def real_seq_len(sequence):
+    return len(sequence.strip('-'))
 
-    offset = 20
 
-    o.mute()
-    o.print('Variant name:', variant.refsnp_id)
+def check_sequence_consistence(reference_seq, ref, alt, offset=20):
+    """Check if CDS and CDNA sequences are consistent with genomic sequence
 
-    if variant.refsnp_source != 'COSMIC':
-        print('Found variant', variant.refsnp_id,
-              'from source other than COSMIC:', variant.refsnp_source)
+    (after removal of dashes from both sides).
+    """
+    ref_seq = reference_seq[ref]
+    alt_seq = reference_seq[alt]
+    seq_len = len(alt_seq)
+    if not alt_seq or not ref_seq:
+        print(
+            'Lack of one of required sequences to '
+            'check consistence: %s or %s' % (ref, alt)
+        )
+        return False
 
-    reference_nuc, reference_seq = get_reference(
-        variant,
-        (cdna_db, cds_db),
-        offset
-    )
+    # remove all '-' signs from the beginning of the sequence
+    alt_seq = alt_seq.lstrip('-')
+    # remember how much was trimmed on the left
+    trim_left = seq_len - len(alt_seq)
 
-    # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
+    seq_len = len(alt_seq)
+    alt_seq = alt_seq.rstrip('-')
+    trim_right = len(alt_seq) - seq_len
 
-    reference_nuc['biomart (ancestral)'] = variant.allele_1
+    ref_seq = ref_seq[trim_left:trim_right]
+
+    if alt_seq != ref_seq:
+        print('Sequence %s is not consistent sequence %s:' % (ref, alt))
+        if ref_seq:
+            print(
+                ref_seq, ':\t', show_pos_with_context(ref_seq, offset, -offset)
+            )
+        if alt_seq:
+            print(
+                alt_seq, ':\t', show_pos_with_context(alt_seq, offset, -offset)
+            )
+
+
+def choose_best_seq(reference_seq):
+
+    # step 0: check if CDS and CDNA sequences are consistent with genomic seq.
+    check_sequence_consistence(reference_seq, 'dna', 'cds')
+    check_sequence_consistence(reference_seq, 'dna', 'cdna')
+
+    # It's not a big problem if CDS and CDNA sequences are not identical.
+    # It's expected that the CDNA will be longer but CDS will be
+    # preferred generally.
+    # The problem is if they are completelly different!
+    check_sequence_consistence(reference_seq, 'cds', 'cdna')
+
+    if reference_seq['cdna']:
+        chosen = 'cdna'
+    elif reference_seq['cds']:
+        chosen = 'cds'
+    elif reference_seq['dna']:
+        chosen = 'dna'
+    else:
+        return False
+
+    return reference_seq[chosen]
+
+
+def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
+    variant.correct = True  # at least now
+
+    variant.chrom_start = int(variant.chorm_start)
+    variant.chrom_end = int(variant.chorm_end)
+
+    pos = [variant.chr_name, variant.chrom_start, variant.chrom_end]
+
+    variant.length = variant.chrom_end - variant.chrom_start + 1  # TODO test this
 
     try:
-        chrom = dna_db[variant.chr_name]
+        reference_sequences = get_reference_seq(
+            variant,
+            (cdna_db, cds_db, dna_db),
+            offset
+        )
     except KeyError:
-        print('Unknown chromosome name', variant.chr_name)
         variant.correct = False
         return
-
-    start, end = chrom.parse_coordinates(variant.chrom_start, variant.chrom_end)
-
-    pos = [str(variant.chr_name), int(variant.chrom_start), int(variant.chrom_end)]
-
-    seq = chrom.fetch(pos[1], pos[2], offset)
-
-    reference_nuc['genome'] = seq[offset:-offset]
-    reference_seq['genome'] = seq
 
     # to get to vcf stored data by vcf reader, change coordinates to 0-based
     pos[1] -= 1
@@ -285,86 +319,42 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db):
     # (if you had n:n pointing to a single base, use n:n+1)
     pos[2] += 1
 
-    for src, seq in reference_seq.items():
-        if not seq:
-            del reference_seq[src]
-            # o.print('Lack of reference sequence in ' + src)
+    variant.sequence = choose_best_seq(reference_sequences)
+    if not variant.sequence:
+        variant.correct = False
+        print('Skipping: No sequence for ', variant.refsnp_id, 'variant.')
 
-    temp_ref_seq = reference_seq['genome']
-    consistent = True
-
-    for src, seq in reference_seq.items():
-        if seq.startswith('-') or seq.endswith('-'):
-            o.print('Offset surpasses {0} transcript span'.format(src))
-        while seq.startswith('-'):
-            seq = seq[1:]
-            temp_ref_seq = temp_ref_seq[1:]
-        while seq.endswith('-'):
-            seq = seq[:-1]
-            temp_ref_seq = temp_ref_seq[:-1]
-        if seq != temp_ref_seq:
-            consistent = False
-
-    if not consistent:
-        o.print('Reference sequences are not consistent:')
-        for src, seq in reference_seq.items():
-            if seq:
-                o.print(src, ':\t', show_pos_with_context(seq, offset, -offset))
-
-    variant.cds_cdna_inconsistent = False
-    if reference_seq.get('cds', '') != reference_seq.get('cdna', ''):
-        cdna_real_len = ref_seq_len('cdna', reference_seq)
-        cds_real_len = ref_seq_len('cds', reference_seq)
-        consensus = cds_real_len != cdna_real_len
-        if 'cds' in reference_seq and 'cdna' in reference_seq:
-            cds = reference_seq['cds']
-            cdna = reference_seq['cds']
-            consensus = True
-            if len(cdna) == len(cds):
-                for i in range(len(cdna)):
-                    if cdna[i] != '-' and cds[i] != '-' and cds[i] != cdna[i]:
-                        consensus = False
-                        break
-        if not consensus:
-            o.unmute()
-            o.print(reference_seq)
-            o.print('cdna and cds sequences are totally inconsistent')
-            exit()
-        else:
-            o.print('cds and cdna of different length')
-            variant.cds_cdna_inconsistent = True
-
-    ref_cds_len = ref_seq_len('cds', reference_seq)
-    if (ref_cds_len and ref_cds_len >= ref_seq_len('cdna', reference_seq)):
-        chosen = 'cds'
-    elif ref_seq_len('cdna', reference_seq):
-        chosen = 'cdna'
-    else:
-        chosen = 'genome'
-
-    ref_seq = reference_seq[chosen]
-    o.print('Chosing %s sequence as reference' % chosen)
-
-    variant.sequence = ref_seq
-    o.print('Context: ' + show_pos_with_context(ref_seq, offset, -offset))
+    ref = variant.sequence[offset:-offset + variant.length]
+    # print('Context: ' + show_pos_with_context(seq, offset, -offset))
 
     vcf_data = get_vcf_by_variant(pos, variant)
 
     if not vcf_data:
-        print('Lack of VCF data for', variant.refsnp_id, 'variant. Skipping')
+        print('Skipping: Lack of VCF data for', variant.refsnp_id, 'variant.')
         variant.correct = False
         return False
-    else:
-        variant.correct = True
 
     assert len(vcf_data.ALT) == 1
-    variant.vcf_data = vcf_data
 
-    variant.alt = str(vcf_data.ALT)
+    variant.alt = str(vcf_data.ALT[0])
+    variant.ref = str(vcf_data.REF)
+    variant.gene = vcf_data.INFO['GENE'][0]
+
+    if variant.ref != ref:
+        print(
+            'VCF says ref is', variant.ref, 'but analysis pointed to',
+            ref, 'for', variant.refsnp_id
+        )
+
+    if variant.refsnp_source != 'COSMIC':
+        # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
+        if variant.ref != variant.allele_1:
+            print(
+                'VCF says ref is', variant.ref, 'but biomart believes it\'s',
+                variant.allele_q, 'for', variant.refsnp_id
+            )
 
     analyze_poly_a(variant, offset)
-
-    o.unmute()
 
     return True
 
@@ -373,7 +363,7 @@ def analyze_poly_a(variant, offset):
 
     ref_seq = variant.sequence
     alt = variant.alt
-    mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + 1:]
+    mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[offset + variant.length:]
     o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
 
     has_aaa, before_len = poly_a(
@@ -404,17 +394,22 @@ dataset = BiomartDataset(
     name='hsapiens_snp_som'
 )
 
+
 @cached(action='load')
 def cachable_variants_by_gene():
     return get_variants_by_genes(dataset, genes_from_patacsdb)
 
+
 variants_by_gene = cachable_variants_by_gene()
+
 
 @cached(action='load')
 def cachable_transcripts_to_load():
     return get_all_used_transcript_ids(variants_by_gene)
 
+
 transcripts_to_load = cachable_transcripts_to_load()
+
 
 @cached(action='load')
 def cachable_cds_db():
@@ -424,6 +419,7 @@ def cachable_cds_db():
         restrict_to=transcripts_to_load
     )
 
+
 @cached(action='load')
 def cachable_cdna_db():
     return SequenceDB(
@@ -431,6 +427,7 @@ def cachable_cdna_db():
         sequence_type='cdna',
         restrict_to=transcripts_to_load
     )
+
 
 @cached(action='load')
 def cachable_dna_db():
@@ -443,11 +440,6 @@ def cachable_dna_db():
             id_type='chromosome.' + chromosome
         )
     return dna_db
-
-
-import gc
-import traceback
-import sys
 
 
 def analyze_variant_here(variant):
@@ -476,31 +468,21 @@ def analyze_variant_here(variant):
     return variant
 
 
-def parse_variants(cds_db, cdna_db, variants_by_gene):
-
+def parse_variants(variants_by_gene):
+    from multiprocessing import Pool
     """
     vcf.parser uses 0-based coordinates:
     http://pyvcf.readthedocs.org/en/latest/_modules/vcf/parser.html?highlight=coordinates
     ensembl uses 1-based coordinates:
     http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
     """
-    """
-    chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
 
-    dna_db = {}
-    for chromosome in chromosomes:
-        dna_db[chromosome] = FastSequenceDB(
-            sequence_type='dna',
-            id_type='chromosome.' + chromosome
-        )
-    """
     variants_by_gene_by_transcript = {}
 
     all_variants_count = 0
 
     cosmic_genes_to_load = set()
 
-    from multiprocessing import Pool
     parsing_pool = Pool(maxtasksperchild=1)
     print('Parsing variants:')
     for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
@@ -538,12 +520,13 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
 
         cosmic_genes_to_load.update(
             [
-                variant.vcf_data.INFO['GENE'][0]
+                variant.vcf_gene
                 for variant in correct_variants
             ]
         )
 
         by_transcript = {}
+        # czwartki koło południa CENT
 
         for variant in correct_variants:
             # The problem with the ensembl's biomart is that it returns records
@@ -555,7 +538,7 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
             # have a canonical transcript, at least it is the best guess), eg.:
             # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
 
-            gene_transcript_id = variant.vcf_data.INFO['GENE'][0]
+            gene_transcript_id = variant.vcf_gene
             transcript_id = gene_transcript_id
 
             try:
@@ -566,6 +549,8 @@ def parse_variants(cds_db, cdna_db, variants_by_gene):
         variants_by_gene_by_transcript[gene] = by_transcript
 
     o.print('All variants', all_variants_count)
+
+    parsing_pool.close()
 
     return variants_by_gene_by_transcript, cosmic_genes_to_load
 
@@ -603,13 +588,14 @@ def get_all_variants(variants_by_transcript, gene):
                 variant.chr_name,
                 variant.chrom_start,
                 variant.chrom_end,
-                variant.vcf_data.REF,
-                ','.join([str(n) for n in variant.vcf_data.ALT]),
+                # variant.ref, # TODO
+                str(variant.vcf_data.REF),
+                ','.join([str(n) for n in variant.alt]),  # just variant TODO
                 variant.ensembl_gene_stable_id,
                 gene_transcript_id
             ])
             if key not in unique_variants.keys():
-                variant.affected_transcripts = set(gene_transcript_id)
+                variant.affected_transcripts = set([gene_transcript_id])
                 unique_variants[key] = variant
             else:
                 unique_variants[key].affected_transcripts.add(gene_transcript_id)
@@ -778,9 +764,18 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
         # treat all variants the same way - just remove duplicates
         variants = get_all_variants(variants_by_transcript, gene)
 
-        for variant in variants:
+        poly_a_related_variants = select_poly_a_related_variants(variants)
+
+        for variant in poly_a_related_variants:
 
             expression_data = bdb.get_by_mutation(variant)
+
+            if not expression_data:
+                # print('No expression for', variant.refsnp_id)
+                variant.expression_trend = 'none'
+                continue
+            else:
+                print('Expression data for', variant.refsnp_id, 'found:', expression_data)
 
             expression_up = []
             expression_down = []
@@ -824,10 +819,10 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
 
         gtex_report_by_genes += [(
             gene,
-            sum('up' in v.expression_trend for v in variants),
-            sum('down' in v.expression_trend for v in variants),
-            sum(v.poly_aaa_increase for v in variants),
-            sum(v.poly_aaa_decrease for v in variants)
+            sum('up' in v.expression_trend for v in poly_a_related_variants),
+            sum('down' in v.expression_trend for v in poly_a_related_variants),
+            sum(v.poly_aaa_increase for v in poly_a_related_variants),
+            sum(v.poly_aaa_decrease for v in poly_a_related_variants)
         )]
 
     report(
@@ -838,9 +833,11 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
 
     report(
         'Expression table for genes (based on data from GTEx)',
-        ['\t'.join(map(str, line)) for line in gtex_report],
+        ['\t'.join(map(str, line)) for line in gtex_report_by_genes],
         'gene\texpression+\texpression-\t#aaa+\t#aaa-'
     )
+
+    print('Done')
 
 
 def main(args, dataset):
@@ -879,22 +876,31 @@ def main(args, dataset):
             restrict_to=transcripts_to_load
         )
 
-    #cdna_db = cachable_cdna_db()
-
-    variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
-        1, 1, variants_by_gene
-    )
     import traceback
     import sys
+    import cPickle as pickle
 
-    try:
-        import cPickle as pickle
-        with open('.variants_by_gene_by_transcript.cache', 'wb') as f:
-            pickle.dump(variants_by_gene_by_transcript, f, protocol=pickle.HIGHEST_PROTOCOL)
-        with open('.cosmic_genes_to_load.cache', 'wb') as f:
-            pickle.dump(cosmic_genes_to_load, f, protocol=pickle.HIGHEST_PROTOCOL)
-    except Exception:
-        traceback.print_exc()
+    #cdna_db = cachable_cdna_db()
+
+    if cache == 'save':
+
+        variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
+            variants_by_gene
+        )
+
+        try:
+            with open('.variants_by_gene_by_transcript.cache', 'wb') as f:
+                pickle.dump(variants_by_gene_by_transcript, f, protocol=pickle.HIGHEST_PROTOCOL)
+            with open('.cosmic_genes_to_load.cache', 'wb') as f:
+                pickle.dump(cosmic_genes_to_load, f, protocol=pickle.HIGHEST_PROTOCOL)
+        except Exception:
+            traceback.print_exc()
+
+    else:
+        with open('.variants_by_gene_by_transcript.cache', 'rb') as f:
+            variants_by_gene_by_transcript = pickle.load(f)
+        with open('.cosmic_genes_to_load.cache', 'rb') as f:
+            cosmic_genes_to_load = pickle.load(f)
 
     try:
         if 'list_poly_aaa_variants' in args.report:
@@ -905,7 +911,7 @@ def main(args, dataset):
     try:
         if 'copy_number_expression' in args.report:
             # TODO to cache again later
-            @cached(action='save')
+            @cached(action='load')
             def cachable_cna():
                 return CompleteCNA(
                     'cosmic/CosmicCompleteCNA.tsv',
