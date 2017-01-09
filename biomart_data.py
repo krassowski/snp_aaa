@@ -19,14 +19,13 @@ class BiomartSequence(object):
 
 class BiomartData(DataStore):
 
-    def __init__(self, dataset, attributes, filters, fasta=False):
+    def __init__(self, dataset, data_raw, filters):
 
         assert isinstance(dataset, BiomartDataset)
 
-        self.attributes = attributes
+        self.attributes = data_raw.attributes
         self.filters = filters
         self.dataset = dataset
-        self.fasta = fasta
 
         # Either I do not understand how to force biomart
         # to give the header data or it does not work
@@ -35,22 +34,13 @@ class BiomartData(DataStore):
         data = self.fetch_data()
         iterator = data.iter_lines()
 
-        super(BiomartData, self).__init__(attributes, data, iterator, single_rows=not fasta)
-
-    def parse_multi(self, entry):
-        return BiomartSequence(entry, self.attributes)
-
-    def is_ready_to_flush(self, rows):
-        if self.fasta:
-            return filter(bool, [row.startswith('>') for row in rows])
-        else:
-            return True
+        super(BiomartData, self).__init__(data_raw, data, iterator)
 
     def fetch_data(self, header=0):
         return self.dataset.search({
             'filters': self.filters,
             'attributes': [unicode(x) for x in self.attributes]
-            }, formatter='FASTA' if self.fasta else 'TSV', header=header)
+            }, formatter='TSV', header=header)
 
     def count(self):
         return self.dataset.count()

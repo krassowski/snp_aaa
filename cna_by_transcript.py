@@ -3,7 +3,7 @@
 
 class CosmicMappings(object):
 
-    def __init__(self, path='cosmic/All_COSMIC_Genes.fasta'):
+    def __init__(self, path='cosmic/v79/All_COSMIC_Genes.fasta'):
         self.transcript_to_gene = {}
         self.gene_to_transcript = {}
         with open(path, 'r') as f:
@@ -52,7 +52,7 @@ class CompleteCNA(object):
 
         expression_data = {}
         # parse expression file
-        with open('cosmic/CosmicCompleteGeneExpression.tsv', 'r') as f:
+        with open('cosmic/v79/CosmicCompleteGeneExpression.tsv', 'r') as f:
             header = f.next().rstrip().split('\t')
             for line in f:
                 line = split(rstrip(line), '\t')

@@ -144,3 +144,12 @@ You can run basic tests of poly_aaa module simply running it from command line (
 ## About
 
 The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
+
+
+## Speed startup
+
+```
+python2 -OO snp_parser.py -r --dataset hsapiens_snp -s 5
+python2 -OO snp_parser.py --report list_poly_aaa_variants copy_number_expression poly_aaa_vs_expression --cache save
+```
+

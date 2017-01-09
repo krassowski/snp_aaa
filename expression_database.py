@@ -59,11 +59,11 @@ class ExpressionDatabase(BerkleyHashSet):
 
         key = '_'.join(map(str, [
             mutation.chr_name,
-            mutation.chrom_start - 1,   # use 0 based
+            int(mutation.chrom_start) - 1,   # use 0 based  # TODO check off by 1?
             mutation.vcf_data.REF,
             mutation.vcf_data.ALT[0]
         ])) + '_b37'
-        print(key)
+        #print(key)
         data = self[key]
 
         return [
