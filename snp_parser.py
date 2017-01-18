@@ -51,7 +51,7 @@ class Variant(object):
         # 'consequence_allele_string'
     )
 
-    __slots__ = attributes + ('ref', 'gene', 'sequence', 'alt', '__dict__')
+    __slots__ = attributes + ('ref', 'gene', 'sequence', 'alt', 'correct', 'length', '__dict__')
 
     def __init__(self, args):
 
@@ -133,19 +133,23 @@ def get_variants_by_genes(dataset, gene_names, step_size=50):
 
         filters = {'ensembl_gene': gene_names[start:start + step_size]}
 
+        print('Downloading variants for genes:', gene_names[start:start + step_size])
         variants = VariantsData(filters=filters, dataset=dataset)
+        print('Download completed. Parsing...')
+
+        variants_in_gene = 0
 
         for variant in variants:
             assert variant.refsnp_id
-            variants_count += 1
+            variants_in_gene += 1
 
             gene = variant.ensembl_gene_stable_id
 
-            variants_with_the_same_id = [
+            variants_with_the_same_id = (
                 known_variant
                 for known_variant in variants_by_gene[gene]
                 if known_variant.refsnp_id == variant.refsnp_id
-            ]
+            )
 
             if variants_with_the_same_id:
                 for known_variant in variants_with_the_same_id:
@@ -163,6 +167,9 @@ def get_variants_by_genes(dataset, gene_names, step_size=50):
         # this is a small trick to turn off unpicklable iterator so it is
         # possible to save the variants object as a cache by pickling
         variants.iterator = None
+
+        variants_count += variants_in_gene
+        print('Parsed', variants_in_gene, 'variants.')
 
     print('Downloaded %s variants' % variants_count)
     return variants_by_gene
@@ -201,9 +208,9 @@ def get_vcf_by_variant(pos, variant):
         else:
             name = names_list[0]
 
-        allele = variant.allele.replace('/', '>')
-        record_id = ''.join([name, ':c.', variant.cds_start, allele])
-        # record_id = ''.join([name, ':c.', variant.cds_start, variant.allele_1, '>', variant.minor_allele])
+        record_id = ''.join([
+            name, ':c.', variant.cds_start, variant.allele_1, '>', variant.minor_allele
+        ])
 
     return get_vcf_by_id(vcf_reader, pos, record_id)
 
@@ -370,8 +377,8 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
         variant.correct = False
         print('Skipping: No sequence for ', variant.refsnp_id, 'variant.')
 
-    ref = variant.sequence[offset:-offset + variant.length]
-    # print('Context: ' + show_pos_with_context(seq, offset, -offset))
+    seq_ref = variant.sequence[offset:-offset]
+    #print('Context: ' + show_pos_with_context(seq, offset, -offset))
 
     vcf_data = get_vcf_by_variant(pos, variant)
 
@@ -382,27 +389,70 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
 
     assert len(vcf_data.ALT) == 1
 
-    variant.alt = str(vcf_data.ALT[0])
-    variant.ref = str(vcf_data.REF)
+    alt = str(vcf_data.ALT[0])
+    ref = str(vcf_data.REF)
+
+    """ temporarily disabled
+    # recognize indel mutations and remove vcf padding from alt/ref variables
+    if len(alt) != len(ref):
+        # excerpt from vcf specs:
+        # For simple insertions and deletions in which either the REF
+        # or one of the ALT alleles would otherwise be null/empty,
+        # the REF and ALT strings must include the base before the event
+        # (which must be reflected in the POS field),
+        # unless the event occurs at position 1 on the contig
+        # in which case it must include the base after the event
+
+        # right side padding, most common
+        if alt[0] == ref[0]:
+            alt = alt[1:]
+            ref = ref[1:]
+        # left side padding, pos should be one
+        elif alt[-1] == ref [-1]:
+            alt = alt[:-1]
+            ref = ref[:-1]
+            if vcf_data.POS != 1:
+                print(
+                    'Wrong padding detected (left while pos is', vcf_data.POS, ')',
+                    'in VCF file for', variant.refsnp_id, 'from',
+                    variant.refsnp_source, 'with ref:', ref, 'and alt:', alt
+                )
+        else:
+            print(
+                'No padding detected despite alt/ref of different lengths',
+                'in VCF file for', variant.refsnp_id, 'from',
+                variant.refsnp_source, 'with ref:', ref, 'and alt:', alt
+            )
+    """ 
+
+    variant.alt = alt
+    variant.ref = seq_ref
+    # variant.ref = ref
 
     try:
         variant.gene = vcf_data.INFO['GENEINFO'].split(':')[0]
     except KeyError:
-        variant.gene = vcf_data.INFO['GENE'][0]
+        try:
+            variant.gene = vcf_data.INFO['GENE'][0]
+        except:
+            print('Neither GENEINFO nor GENE are available in VCF for', variant.refsnp_id)
+            variant.correct = False
+            return
 
-    if variant.ref != ref:
+    if variant.ref != seq_ref:
         print(
-            'VCF says ref is', variant.ref, 'but analysis pointed to',
-            ref, 'for', variant.refsnp_id
+            'VCF says ref is', variant.ref, 'but sequence analysis pointed to',
+            seq_ref, 'for', variant.refsnp_id
         )
 
-    if variant.refsnp_source != 'COSMIC':
-        # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
-        if variant.ref != variant.allele_1:
-            print(
-                'VCF says ref is', variant.ref, 'but biomart believes it\'s',
-                variant.allele_1, 'for', variant.refsnp_id
-            )
+    # major allele does not have to be the same as reference. A first example: rs9297605
+    #if variant.refsnp_source != 'COSMIC':
+    #    # Allele is not informative for entries from cosmic ('COSMIC_MUTATION')
+    #    if variant.ref != variant.allele_1:
+    #        print(
+    #            'VCF says ref is', variant.ref, 'but biomart believes it\'s',
+    #            variant.allele_1, 'for', variant.refsnp_id
+    #        )
 
     analyze_poly_a(variant, offset)
 
@@ -412,10 +462,11 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
 def analyze_poly_a(variant, offset):
 
     ref_seq = variant.sequence
-    mutated_seq = ref_seq[:offset] + str(variant.alt) + ref_seq[offset + variant.length + 1:]
+    mutated_seq = ref_seq[:offset] + str(variant.alt) + ref_seq[:-offset]
 
-    #o.print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
-    #o.print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
+    #print(variant.refsnp_id)
+    #print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
+    #print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
 
     has_aaa, before_len = poly_a(
         ref_seq,
@@ -472,12 +523,13 @@ def parse_variants(variants_by_gene):
         # Remove variants with non-complete data
         correct_variants = filter(lambda variant: variant.correct, variants)
 
+        # TODO
         # Remove variants from source other than COSMIC (later I am processing
         # cosmic-specific data so db_snp variants are not relevant here)
-        correct_variants = filter(
-            lambda variant: variant.refsnp_source == 'COSMIC',
-            list(correct_variants)
-        )
+        # correct_variants = filter(
+        #    lambda variant: variant.refsnp_source == 'COSMIC',
+        #    list(correct_variants)
+        # )
 
         cosmic_genes_to_load.update(
             [
@@ -534,7 +586,7 @@ def report(name, data, comment=None):
     print('Created report "' + name + '" with', len(data), 'entries')
 
 
-def get_all_variants(variants_by_transcript, gene):
+def get_all_variants(variants_by_transcript, gene, report_duplicated=True):
 
     unique_variants = {}
     duplicated = set()
@@ -558,7 +610,8 @@ def get_all_variants(variants_by_transcript, gene):
                 stored_variant = unique_variants[key]
                 duplicated.update([variant.refsnp_id], [stored_variant.refsnp_id])
 
-    report('Duplicated records for gene: ' + gene, duplicated)
+    if report_duplicated:
+        report('Duplicated records for gene: ' + gene, duplicated)
 
     return unique_variants.values()
 
@@ -624,7 +677,7 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
                 continue
 
         # treat all variants the same way - just remove duplicates
-        variants = get_all_variants(variants_by_transcript, gene)
+        variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
 
         variants_count += len(variants)
 
@@ -696,13 +749,8 @@ def get_all_used_transcript_ids(variants_by_gene):
 def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
 
     from expression_database import ExpressionDatabase
-    from expression_database import import_expression_data
 
     bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
-
-    # KEEP OUT
-    if cache_action == 'save_all':
-        import_expression_data(bdb)
 
     def is_length_difference_big(l1, l2):
         """Is the first list much longer than the second?"""
@@ -846,7 +894,7 @@ def main(args, dataset):
 
     try:
         if 'poly_aaa_vs_expression' in args.report:
-            poly_aaa_vs_expression(variants_by_gene_by_transcript, cache)
+            poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action)
     except Exception:
         traceback.print_exc()
 
@@ -897,6 +945,11 @@ if __name__ == '__main__':
     parser.add_argument(
         '-r',
         '--reload_variants',
+        action='store_true',
+    )
+    parser.add_argument(
+        '-r',
+        '--reload_gtex',
         action='store_true',
     )
     parser.add_argument(
@@ -1009,6 +1062,15 @@ if __name__ == '__main__':
             return dna_db
 
         print('Variants data ' + global_cache_action + 'ed')
+
+    if args.reload_gtex:
+        from expression_database import ExpressionDatabase
+        from expression_database import import_expression_data
+
+        bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
+
+        print('Reloading GTEx expression data:')
+        import_expression_data(bdb)
 
     if run and not args.reload_variants:
 

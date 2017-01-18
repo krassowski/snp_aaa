@@ -60,11 +60,13 @@ class ExpressionDatabase(BerkleyHashSet):
         key = '_'.join(map(str, [
             mutation.chr_name,
             int(mutation.chrom_start) - 1,   # use 0 based  # TODO check off by 1?
-            mutation.vcf_data.REF,
-            mutation.vcf_data.ALT[0]
+            mutation.ref,
+            mutation.alt
         ])) + '_b37'
-        #print(key)
+        # print(key, mutation.refsnp_id)
         data = self[key]
+        if data:
+            print('Found something!', mutation.refsnp_id, key, data)
 
         return [
             datum.split(',')

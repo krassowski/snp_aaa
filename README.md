@@ -153,3 +153,9 @@ python2 -OO snp_parser.py -r --dataset hsapiens_snp -s 5
 python2 -OO snp_parser.py --report list_poly_aaa_variants copy_number_expression poly_aaa_vs_expression --cache save
 ```
 
+cd ncbi
+wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/All_20161122.vcf.gz
+wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/All_20161122.vcf.gz.tbi
+mv All_20161122.vcf.gz 00-All.vcf.gz
+mv All_20161122.vcf.gz.tbi 00-All.vcf.gz.tbi
+
