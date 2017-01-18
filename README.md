@@ -148,9 +148,12 @@ The code in the repository as available before 2016-06-30 was written during 60-
 
 ## Speed startup
 
-```
-python2 -OO snp_parser.py -r --dataset hsapiens_snp -s 5
-python2 -OO snp_parser.py --report list_poly_aaa_variants copy_number_expression poly_aaa_vs_expression --cache save
+```bash
+python2 -OO snp_parser.py -g # generates GTEx key-value database from raw GTEx data, use just once
+python2 -OO snp_parser.py -r --dataset hsapiens_snp -s 5 # downloads all mutations, use every time when changing datasets. Takes about 1 day
+python2 -OO snp_parser.py --report list_poly_aaa_variants copy_number_expression poly_aaa_vs_expression --cache save # Two things here: 1. parse all mutations (so poly_aaa variants will be discovered here) (about 1 day) 2. report specified reports
+# once mutations have been analyse, use 'load' instead of save (we keep results in cache) to re-run desired reports, e.g.:
+python2 -OO snp_parser.py --report  poly_aaa_vs_expression --cache load
 ```
 
 cd ncbi

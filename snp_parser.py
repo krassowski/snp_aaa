@@ -767,7 +767,7 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
         # treat all variants the same way - just remove duplicates
-        variants = get_all_variants(variants_by_transcript, gene)
+        variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
 
         poly_a_related_variants = select_poly_a_related_variants(variants)
 
@@ -948,7 +948,7 @@ if __name__ == '__main__':
         action='store_true',
     )
     parser.add_argument(
-        '-r',
+        '-g',
         '--reload_gtex',
         action='store_true',
     )
