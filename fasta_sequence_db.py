@@ -53,7 +53,7 @@ class BasicSequenceDB(object):
 
 class SequenceDB(BasicSequenceDB):
 
-    def __init__(self, index_by='transcript', sequence_type='cds', id_type='all', version, assembly, path=None, restrict_to=None):
+    def __init__(self, version, assembly, index_by='transcript', sequence_type='cds', id_type='all', path=None, restrict_to=None):
 
         super(SequenceDB, self).__init__(sequence_type, id_type, version, assembly, path)
 

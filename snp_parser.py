@@ -1030,10 +1030,10 @@ if __name__ == '__main__':
         @cached(action=global_cache_action)
         def cachable_cds_db():
             return SequenceDB(
-                index_by='transcript',
-                sequence_type='cds',
                 version=ENSEMBL_VERSION,
                 assembly=GRCH_VERSION,
+                index_by='transcript',
+                sequence_type='cds',
                 restrict_to=transcripts_to_load
             )
 
@@ -1041,10 +1041,10 @@ if __name__ == '__main__':
         @cached(action=global_cache_action)
         def cachable_cdna_db():
             return SequenceDB(
-                index_by='transcript',
-                sequence_type='cdna',
                 version=ENSEMBL_VERSION,
                 assembly=GRCH_VERSION,
+                index_by='transcript',
+                sequence_type='cdna',
                 restrict_to=transcripts_to_load
             )
 
@@ -1056,9 +1056,9 @@ if __name__ == '__main__':
 
             for chromosome in chromosomes:
                 dna_db[chromosome] = FastSequenceDB(
-                    sequence_type='dna',
                     version=ENSEMBL_VERSION,
                     assembly=GRCH_VERSION,
+                    sequence_type='dna',
                     id_type='chromosome.' + chromosome
                 )
             return dna_db
