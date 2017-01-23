@@ -12,7 +12,7 @@ def cached(action='load'):
             if action == 'load':
                 with open(cache_name, 'rb') as f:
                     variable = pickle.load(f)
-                print('"' + display_name + '" data loaded from cache')
+                # print('"' + display_name + '" data loaded from cache')
             else:
                 print('Generating "' + display_name + '"...')
                 variable = generating_function(*args, **kwargs)
