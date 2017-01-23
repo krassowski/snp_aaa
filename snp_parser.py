@@ -145,11 +145,11 @@ def get_variants_by_genes(dataset, gene_names, step_size=50):
 
             gene = variant.ensembl_gene_stable_id
 
-            variants_with_the_same_id = (
+            variants_with_the_same_id = [
                 known_variant
                 for known_variant in variants_by_gene[gene]
                 if known_variant.refsnp_id == variant.refsnp_id
-            )
+            ]
 
             if variants_with_the_same_id:
                 for known_variant in variants_with_the_same_id:
@@ -181,11 +181,21 @@ def get_hgnc(variant, hgnc_by_ensembl):
 
 def get_vcf_by_variant(pos, variant):
 
+    # to get to vcf stored data by vcf reader, change coordinates to 0-based
+    pos[1] -= 1
+    pos[2] -= 1
+
+    # and represent them as range
+    # (if you had n:n pointing to a single base, use n:n+1)
+    pos[2] += 1
+
+    #print('Checking out variant: %s from %s at %s' % (variant.refsnp_id, variant.refsnp_source, pos))
+
     if variant.refsnp_source == 'COSMIC':
         vcf_reader = vcf.Reader(filename='cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz')
         record_id = variant.refsnp_id
     elif variant.refsnp_source == 'dbSNP':
-        vcf_reader = vcf.Reader(filename='ncbi/00-All.vcf.gz')
+        vcf_reader = vcf.Reader(filename='ncbi/dbsnp_149-grch37p13/00-All.vcf.gz')
         record_id = variant.refsnp_id
     else:
         vcf_reader = vcf.Reader(filename='ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens_somatic.vcf.gz')
@@ -363,14 +373,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
         variant.correct = False
         return
 
-    # to get to vcf stored data by vcf reader, change coordinates to 0-based
-    pos[1] -= 1
-    pos[2] -= 1
-
-    # and represent them as range
-    # (if you had n:n pointing to a single base, use n:n+1)
-    pos[2] += 1
-
     variant.sequence = choose_best_seq(reference_sequences)
 
     if not variant.sequence:
@@ -387,7 +389,13 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
         variant.correct = False
         return False
 
-    assert len(vcf_data.ALT) == 1
+    if len(vcf_data.ALT) != 1:
+        variant.correct = False
+        if len(vcf_data.ALT) == 0:
+            print('Skipping: Lack of ALT for', variant.refsnp_id, 'variant.')
+        else:
+            print('Skipping: Too many ALT for', variant.refsnp_id, 'variant.')
+        return False
 
     alt = str(vcf_data.ALT[0])
     ref = str(vcf_data.REF)
@@ -429,6 +437,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
     variant.ref = seq_ref
     # variant.ref = ref
 
+    # this causes a problem with CNV mappings
     try:
         variant.gene = vcf_data.INFO['GENEINFO'].split(':')[0]
     except KeyError:
@@ -462,7 +471,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
 def analyze_poly_a(variant, offset):
 
     ref_seq = variant.sequence
-    mutated_seq = ref_seq[:offset] + str(variant.alt) + ref_seq[:-offset]
+    mutated_seq = ref_seq[:offset] + str(variant.alt) + ref_seq[-offset:]
 
     #print(variant.refsnp_id)
     #print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
@@ -513,7 +522,7 @@ def parse_variants(variants_by_gene):
         if len(variants_unique_ids) != len(variants):
             raise Exception('Less unique ids than variants!')
 
-        # print('Analysing:', len(variants), 'from', gene)
+        print('Analysing:', len(variants), 'from', gene)
         all_variants_count += len(variants)
 
         variants = parsing_pool.map(analyze_variant_here, variants)
@@ -571,7 +580,7 @@ def report(name, data, comment=None):
     the report. The data should be an iterable collection of strings.
     Empty reports will not be created.
     """
-    directory = 'reports_three'
+    directory = 'reports'
 
     if not os.path.exists(directory):
         os.makedirs(directory)
@@ -617,6 +626,10 @@ def get_all_variants(variants_by_transcript, gene, report_duplicated=True):
 
 
 def select_poly_a_related_variants(variants):
+
+    for variant in variants:
+        analyze_poly_a(variant, 20)
+
     return [
         variant
         for variant in variants
@@ -647,7 +660,7 @@ def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
         ]
 
     report(
-        'poly aaa increase and decrease by variants',
+        'poly aaa increase and decrease by variants 2',
         variant_aaa_report,
         'snp_id\tpoly_aaa_increase\tpoly_aaa_decrease\tpoly_aaa_change'
     )
@@ -678,6 +691,18 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
 
         # treat all variants the same way - just remove duplicates
         variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
+
+        for variant in variants:
+            analyze_poly_a(variant, 20)
+
+        """
+        # for this analysis consider only variants from cosmic
+        variants = [
+            variant
+            for variant in variants
+            if variant.refsnp_source == 'COSMIC'
+        ]
+        """
 
         variants_count += len(variants)
 
@@ -746,11 +771,11 @@ def get_all_used_transcript_ids(variants_by_gene):
     return transcripts_ids
 
 
-def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
+def poly_aaa_vs_expression(variants_by_gene_by_transcript):
 
     from expression_database import ExpressionDatabase
 
-    bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
+    bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation_full.db')
 
     def is_length_difference_big(l1, l2):
         """Is the first list much longer than the second?"""
@@ -770,7 +795,7 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
         variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
 
         poly_a_related_variants = select_poly_a_related_variants(variants)
-
+        print('Analysing %s poly_a related vartiants (total: %s) from %s gene.' % (len(poly_a_related_variants), len(variants), gene))
         for variant in poly_a_related_variants:
 
             expression_data = bdb.get_by_mutation(variant)
@@ -847,28 +872,26 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action='load'):
 
 def main(args, dataset):
     """The main workflow happens here."""
-    cache_action = args.cache
 
     variants_by_gene = cachable_variants_by_gene()
 
-    if cache_action == 'save':
+    if args.parse_variants:
 
         variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
             variants_by_gene
         )
 
         try:
-            with open('.variants_by_gene_by_transcript.cache', 'wb') as f:
+            with open('.variants_by_gene_by_transcript_new_two.cache', 'wb') as f:
                 pickle.dump(variants_by_gene_by_transcript, f, protocol=pickle.HIGHEST_PROTOCOL)
-            with open('.cosmic_genes_to_load.cache', 'wb') as f:
+            with open('.cosmic_genes_to_load_new_two.cache', 'wb') as f:
                 pickle.dump(cosmic_genes_to_load, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:
             traceback.print_exc()
-
     else:
-        with open('.variants_by_gene_by_transcript.cache', 'rb') as f:
+        with open('.variants_by_gene_by_transcript_new_two.cache', 'rb') as f:
             variants_by_gene_by_transcript = pickle.load(f)
-        with open('.cosmic_genes_to_load.cache', 'rb') as f:
+        with open('.cosmic_genes_to_load_new_two.cache', 'rb') as f:
             cosmic_genes_to_load = pickle.load(f)
 
     try:
@@ -894,7 +917,7 @@ def main(args, dataset):
 
     try:
         if 'poly_aaa_vs_expression' in args.report:
-            poly_aaa_vs_expression(variants_by_gene_by_transcript, cache_action)
+            poly_aaa_vs_expression(variants_by_gene_by_transcript)
     except Exception:
         traceback.print_exc()
 
@@ -907,14 +930,17 @@ if __name__ == '__main__':
 
     to_show = ['databases', 'datasets', 'filters', 'attributes',
                'attributes_by_page', 'some_variant']
-    cache_actions = ['load', 'save']
     parser = argparse.ArgumentParser(description='Find SNPs')
     parser.add_argument('--show', choices=to_show)
-    parser.add_argument('--cache', choices=cache_actions)
-    parser.add_argument('--report', nargs='+', choices=[
-        'list_poly_aaa_variants', 'copy_number_expression',
-        'poly_aaa_vs_expression'
-    ])
+    parser.add_argument(
+        '--report',
+        nargs='+',
+        choices=[
+            'list_poly_aaa_variants', 'copy_number_expression',
+            'poly_aaa_vs_expression'
+        ],
+        default=[]
+    )
     parser.add_argument('--profile', action='store_true')
     parser.add_argument(
         '--dataset',
@@ -948,6 +974,10 @@ if __name__ == '__main__':
         action='store_true',
     )
     parser.add_argument(
+        '--parse_variants',
+        action='store_true',
+    )
+    parser.add_argument(
         '-g',
         '--reload_gtex',
         action='store_true',
@@ -960,7 +990,7 @@ if __name__ == '__main__':
         help='Variants from how many genes should be requested at once from biomart? Default 25.'
     )
 
-    subcommands = ['show', 'cache', 'profile']
+    subcommands = ['show', 'profile']
     arguments = ['--' + a if a in subcommands else a for a in sys.argv[1:]]
 
     args = parser.parse_args(arguments)
@@ -1067,10 +1097,14 @@ if __name__ == '__main__':
         from expression_database import ExpressionDatabase
         from expression_database import import_expression_data
 
-        bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
+        bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation_full.db')
 
         print('Reloading GTEx expression data:')
-        import_expression_data(bdb)
+        import_expression_data(
+            bdb,
+            path='GTEx_Analysis_v6p_all-associations',
+            suffix='_Analysis.v6p.all_snpgene_pairs.txt.gz'
+        )
 
     if run and not args.reload_variants:
 
