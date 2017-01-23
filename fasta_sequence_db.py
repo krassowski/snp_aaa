@@ -19,18 +19,23 @@ def complement(seq):
 
 class BasicSequenceDB(object):
 
-    directory = 'ensembl/v87'
-    assembly = 'GRCh38'
+    directory = 'ensembl/v'
     species = 'Homo_sapiens'
 
-    def __init__(self, sequence_type, id_type, path=None):
+    def __init__(self, sequence_type, id_type, version, assembly, path=None):
 
         self.sequence_type = sequence_type
         self.id_type = id_type
+        self.version = version
+        self.assembly = assembly
+
+        # filenames of older assemblies have version included
+        if int(version) <= 75:
+            self.assembly += '.' + version
 
         if path is None:
             data = [self.species, self.assembly, self.sequence_type, self.id_type]
-            path = self.directory + '/' + '.'.join(data) + '.fa.gz'
+            path = self.directory + self.version + '/' + '.'.join(data) + '.fa.gz'
 
         self.path = path
 
@@ -48,9 +53,9 @@ class BasicSequenceDB(object):
 
 class SequenceDB(BasicSequenceDB):
 
-    def __init__(self, index_by='transcript', sequence_type='cds', id_type='all', path=None, restrict_to=None):
+    def __init__(self, index_by='transcript', sequence_type='cds', id_type='all', version, assembly, path=None, restrict_to=None):
 
-        super(SequenceDB, self).__init__(sequence_type, id_type, path)
+        super(SequenceDB, self).__init__(sequence_type, id_type, version, assembly, path)
 
         self.restrict_to = restrict_to
         print('[loading database: ' + self.path + ']')

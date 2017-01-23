@@ -6,7 +6,11 @@ from collections import defaultdict
 import vcf
 import os
 import sys
-from poly_a import poly_a
+import gc
+import traceback
+import cPickle as pickle
+from tqdm import tqdm
+from tqdm import trange
 from fasta_sequence_db import SequenceDB
 from fasta_sequence_db import FastSequenceDB
 from cache import cached
@@ -14,81 +18,19 @@ from output_formatter import OutputFormatter
 from biomart_data import BiomartData
 from biomart_data import BiomartDataset
 from cna_by_transcript import CompleteCNA
-from tqdm import tqdm
-from tqdm import trange
 from berkley_hash_set import BerkleyHashSet
-import gc
-import traceback
-import cPickle as pickle
+from poly_a import poly_a
+from variant import Variant
+from variant import PolyAAAData
 
 
 o = OutputFormatter()
 
-ENSEMBL_VERSION = '87'
+
+GRCH_VERSION = '37'
+GRCH_SUBVERSION = '13'
+ENSEMBL_VERSION = '75'
 COSMIC_VERSION = '79'
-
-
-class Variant(object):
-
-    attributes = (
-        'refsnp_id',
-        'refsnp_source',
-        'chr_name',
-        'chrom_start',
-        'chrom_end',
-        # 'allele',  # Variant Alleles
-        'allele_1',  # Ancestral allele - the most frequent allele
-        'minor_allele', # the second most frequent allele
-        'chrom_strand',
-        'cdna_start',
-        'cdna_end',
-        'ensembl_gene_stable_id',
-        'ensembl_transcript_stable_id',
-        'ensembl_transcript_chrom_strand',
-        'cds_start',
-        'cds_end'
-        # 'consequence_type_tv',
-        # 'consequence_allele_string'
-    )
-
-    __slots__ = attributes + ('ref', 'gene', 'sequence', 'alts', 'poly_aaa', 'correct', '__dict__')
-
-    def __init__(self, args):
-
-        args = args.split('\t')
-
-        for i, attr in enumerate(self.attributes):
-            setattr(self, attr, args[i])
-
-    def __repr__(self):
-
-        representation = 'Variant:'
-
-        for attr in self.attributes:
-            representation += '\n\t %s: %s' % (attr, getattr(self, attr))
-
-        return representation
-
-    @property
-    def length(self):
-        return self.chrom_end - self.chrom_start
-
-
-class PolyAAAData(object):
-
-    __slots__ = ('has', 'will_have', 'before', 'after')
-
-    @property
-    def change(self):
-        return self.after - self.before
-
-    @property
-    def increased(self):
-        return self.change > 0
-
-    @property
-    def decreased(self):
-        return self.change < 0
 
 
 class VariantsData(BiomartData):
@@ -1091,6 +1033,8 @@ if __name__ == '__main__':
             return SequenceDB(
                 index_by='transcript',
                 sequence_type='cds',
+                version=ENSEMBL_VERSION,
+                assembly=GRCH_VERSION,
                 restrict_to=transcripts_to_load
             )
 
@@ -1100,6 +1044,8 @@ if __name__ == '__main__':
             return SequenceDB(
                 index_by='transcript',
                 sequence_type='cdna',
+                version=ENSEMBL_VERSION,
+                assembly=GRCH_VERSION,
                 restrict_to=transcripts_to_load
             )
 
@@ -1112,6 +1058,8 @@ if __name__ == '__main__':
             for chromosome in chromosomes:
                 dna_db[chromosome] = FastSequenceDB(
                     sequence_type='dna',
+                    version=ENSEMBL_VERSION,
+                    assembly=GRCH_VERSION,
                     id_type='chromosome.' + chromosome
                 )
             return dna_db
