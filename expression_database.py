@@ -63,10 +63,8 @@ class ExpressionDatabase(BerkleyHashSet):
             mutation.ref,
             mutation.alt
         ])) + '_b37'
-        # print(key, mutation.refsnp_id)
+
         data = self[key]
-        if data:
-            print('Found something!', mutation.refsnp_id, key, data)
 
         return [
             datum.split(',')

@@ -51,7 +51,7 @@ class Variant(object):
         # 'consequence_allele_string'
     )
 
-    __slots__ = attributes + ('ref', 'gene', 'sequence', 'alt', 'correct', 'length', '__dict__')
+    __slots__ = attributes + ('ref', 'gene', 'sequence', 'alts', 'poly_aaa', 'correct', '__dict__')
 
     def __init__(self, args):
 
@@ -68,6 +68,27 @@ class Variant(object):
             representation += '\n\t %s: %s' % (attr, getattr(self, attr))
 
         return representation
+
+    @property
+    def length(self):
+        return self.chrom_end - self.chrom_start
+
+
+class PolyAAAData(object):
+
+    __slots__ = ('has', 'will_have', 'before', 'after')
+
+    @property
+    def change(self):
+        return self.after - self.before
+
+    @property
+    def increased(self):
+        return self.change > 0
+
+    @property
+    def decreased(self):
+        return self.change < 0
 
 
 class VariantsData(BiomartData):
@@ -360,7 +381,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
 
     pos = [str(variant.chr_name), variant.chrom_start, variant.chrom_end]
 
-    variant.length = variant.chrom_end - variant.chrom_start  # TODO test this
 
     try:
         reference_sequences = get_reference_seq(
@@ -389,15 +409,12 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
         variant.correct = False
         return False
 
-    if len(vcf_data.ALT) != 1:
+    if len(vcf_data.ALT) == 0:
         variant.correct = False
-        if len(vcf_data.ALT) == 0:
-            print('Skipping: Lack of ALT for', variant.refsnp_id, 'variant.')
-        else:
-            print('Skipping: Too many ALT for', variant.refsnp_id, 'variant.')
+        print('Skipping: Lack of ALT for', variant.refsnp_id, 'variant.')
         return False
 
-    alt = str(vcf_data.ALT[0])
+    alts = list(map(str, vcf_data.ALT))
     ref = str(vcf_data.REF)
 
     """ temporarily disabled
@@ -433,7 +450,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
             )
     """ 
 
-    variant.alt = alt
+    variant.alts = alts
     variant.ref = seq_ref
     # variant.ref = ref
 
@@ -471,7 +488,6 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
 def analyze_poly_a(variant, offset):
 
     ref_seq = variant.sequence
-    mutated_seq = ref_seq[:offset] + str(variant.alt) + ref_seq[-offset:]
 
     #print(variant.refsnp_id)
     #print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
@@ -483,19 +499,22 @@ def analyze_poly_a(variant, offset):
         len(ref_seq) - offset
     )
 
-    will_have, after_len = poly_a(
-        mutated_seq,
-        offset,
-        len(mutated_seq) - offset
-    )
+    variant.poly_aaa = defaultdict(PolyAAAData)
 
-    variant.has_poly_a = has_aaa
-    variant.will_have_poly_a = will_have
-    variant.poly_aaa_before = before_len
-    variant.poly_aaa_after = after_len
-    variant.poly_aaa_change = variant.poly_aaa_after - variant.poly_aaa_before
-    variant.poly_aaa_increase = variant.poly_aaa_after > variant.poly_aaa_before
-    variant.poly_aaa_decrease = variant.poly_aaa_after < variant.poly_aaa_before
+    for alt in variant.alts:
+
+        mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[-offset:]
+
+        will_have, after_len = poly_a(
+            mutated_seq,
+            offset,
+            len(mutated_seq) - offset
+        )
+
+        variant.poly_aaa[alt].has = has_aaa
+        variant.poly_aaa[alt].will_have = will_have
+        variant.poly_aaa[alt].before = before_len
+        variant.poly_aaa[alt].after = after_len
 
 
 def parse_variants(variants_by_gene):
@@ -515,7 +534,13 @@ def parse_variants(variants_by_gene):
 
     parsing_pool = Pool(maxtasksperchild=1)
     print('Parsing variants:')
+
+    x = 1
     for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
+
+        if x > 4:
+            break
+        x += 1
 
         # Just to be certain
         variants_unique_ids = set(variant.refsnp_id for variant in variants)
@@ -882,9 +907,9 @@ def main(args, dataset):
         )
 
         try:
-            with open('.variants_by_gene_by_transcript_new_two.cache', 'wb') as f:
+            with open('.variants_by_gene_by_transcript_37_all_alts.cache', 'wb') as f:
                 pickle.dump(variants_by_gene_by_transcript, f, protocol=pickle.HIGHEST_PROTOCOL)
-            with open('.cosmic_genes_to_load_new_two.cache', 'wb') as f:
+            with open('.cosmic_genes_to_load_37_all_alts.cache', 'wb') as f:
                 pickle.dump(cosmic_genes_to_load, f, protocol=pickle.HIGHEST_PROTOCOL)
         except Exception:
             traceback.print_exc()
