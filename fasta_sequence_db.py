@@ -135,9 +135,9 @@ class FastSequenceDB(BasicSequenceDB):
     without breakes or headers except the one in the first line.
     """
 
-    def __init__(self, id_type, sequence_type='dna', length=60):
+    def __init__(self, version, assembly, id_type, sequence_type='dna', length=60):
 
-        super(FastSequenceDB, self).__init__(sequence_type, id_type)
+        super(FastSequenceDB, self).__init__(sequence_type, id_type, version, assembly)
         self.length = length
 
     def fetch(self, start, end, offset=0):

@@ -27,7 +27,7 @@ from variant import PolyAAAData
 o = OutputFormatter()
 
 
-GRCH_VERSION = '37'
+GRCH_VERSION = 'GRCh37'
 GRCH_SUBVERSION = '13'
 ENSEMBL_VERSION = '75'
 COSMIC_VERSION = '79'
@@ -161,7 +161,7 @@ def get_vcf_by_variant(pos, variant):
         vcf_reader = vcf.Reader(filename='ncbi/dbsnp_149-grch37p13/00-All.vcf.gz')
         record_id = variant.refsnp_id
     else:
-        vcf_reader = vcf.Reader(filename='ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens_somatic.vcf.gz')
+        vcf_reader = vcf.Reader(filename='ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz')
         hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
 
         if variant.cds_start is None:
@@ -1011,7 +1011,7 @@ if __name__ == '__main__':
 
         genes_from_patacsdb = gene_names_from_patacsdb_csv(args.number)
 
-        @cached(action=global_cache_action)
+        @cached(action='load')
         def cachable_variants_by_gene():
             return get_variants_by_genes(snp_dataset, genes_from_patacsdb, step_size=args.step_size)
 
@@ -1019,7 +1019,7 @@ if __name__ == '__main__':
         variants_by_gene = cachable_variants_by_gene()
 
 
-        @cached(action=global_cache_action)
+        @cached(action='load')
         def cachable_transcripts_to_load():
             return get_all_used_transcript_ids(variants_by_gene)
 
@@ -1037,6 +1037,7 @@ if __name__ == '__main__':
                 restrict_to=transcripts_to_load
             )
 
+        print(global_cache_action)
 
         @cached(action=global_cache_action)
         def cachable_cdna_db():
@@ -1062,6 +1063,11 @@ if __name__ == '__main__':
                     id_type='chromosome.' + chromosome
                 )
             return dna_db
+
+        constructors = [cachable_dna_db, cachable_cds_db, cachable_cdna_db]
+
+        for db in constructors:
+            db()
 
         print('Variants data ' + global_cache_action + 'ed')
 
