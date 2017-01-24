@@ -477,11 +477,7 @@ def parse_variants(variants_by_gene):
     parsing_pool = Pool(maxtasksperchild=1)
     print('Parsing variants:')
 
-    x = 1
     for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
-
-        if x > 4:
-            break
 
         # Just to be certain
         variants_unique_ids = set(variant.refsnp_id for variant in variants)

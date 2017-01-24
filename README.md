@@ -114,10 +114,13 @@ else
 	then
 		wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
 	else
-		#./create_tabix.sh Homo_sapiens.vcf.gz
-		echo "TODO: TABIX CREATION"
+		./vcf_to_tabix.sh Homo_sapiens.vcf.gz
+		mv Homo_sapiens.vcf.gz Homo_sapiens.vcf.gz.unsorted
+		mv Homo_sapiens.vcf.gz.bgz Homo_sapiens.vcf.gz
+		mv Homo_sapiens.vcf.gz.bgz.tbi Homo_sapiens.vcf.gz.tbi
 	fi
 fi
+
 ```
 
 When analyzing only somatic mutations one might want to use `Homo_sapiens_somatic.vcf.gz` instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
