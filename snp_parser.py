@@ -390,7 +390,7 @@ def analyze_variant(variant, cds_db, cdna_db, dna_db, offset=20):
                 'in VCF file for', variant.refsnp_id, 'from',
                 variant.refsnp_source, 'with ref:', ref, 'and alt:', alt
             )
-    """ 
+    """
 
     variant.alts = alts
     variant.ref = seq_ref
@@ -442,6 +442,8 @@ def analyze_poly_a(variant, offset):
     )
 
     variant.poly_aaa = defaultdict(PolyAAAData)
+
+    variant.alts = [variant.alt]
 
     for alt in variant.alts:
 
@@ -595,7 +597,10 @@ def select_poly_a_related_variants(variants):
     return [
         variant
         for variant in variants
-        if variant.has_poly_a or variant.will_have_poly_a
+        if any([
+            data.has or data.will_have
+            for data in variant.poly_aaa.values()
+        ])
     ]
 
 
@@ -614,18 +619,71 @@ def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
         variant_aaa_report += [
             '\t'.join(map(str, [
                 variant.refsnp_id,
-                variant.poly_aaa_increase,
-                variant.poly_aaa_decrease,
-                variant.poly_aaa_change
+                data.increased,
+                data.decreased,
+                data.change,
+                alt
             ]))
             for variant in poly_a_related_variants
+            for alt, data in variant.poly_aaa.items()
         ]
 
     report(
-        'poly aaa increase and decrease by variants 2',
+        'poly aaa increase and decrease by variants',
         variant_aaa_report,
-        'snp_id\tpoly_aaa_increase\tpoly_aaa_decrease\tpoly_aaa_change'
+        'snp_id\tpoly_aaa_increase\tpoly_aaa_decrease\tpoly_aaa_change\talt'
     )
+
+
+def gtex_over_api(variants_by_gene_by_transcript):
+    import requests, sys
+
+    variant_aaa_report = []
+
+    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+
+        # treat all variants the same way - just remove duplicates
+        variants = get_all_variants(variants_by_transcript, gene)
+
+        poly_a_related_variants = select_poly_a_related_variants(variants)
+
+        variant_aaa_report += ['# ' + gene]
+
+        for variant in poly_a_related_variants:
+
+
+            server = "http://rest.ensembl.org"
+            ext = "/eqtl/variant_name/homo_sapiens/" + variant.refsnp_id + '?statistic=p-value;content-type=application/json'
+            "rs17438086?statistic=p-value;stable_id=ENSG00000162627;tissue=Adipose_Visceral_Omentum"
+            u_a = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.82 Safari/537.36"
+
+            try:
+                r = requests.get(server+ext, headers={"USER-AGENT":u_a, "content-type": "application/json"})
+
+                if not r.ok:
+                  r.raise_for_status()
+                  sys.exit()
+
+                decoded = r.json()
+
+                if not decoded['error']:
+                    print('Found sth!')
+                    print(repr(decoded))
+
+            except:
+                pass
+            """
+            variant_aaa_report += [
+                '\t'.join(map(str, [
+                    variant.refsnp_id,
+                    data.increased,
+                    data.decreased,
+                    data.change,
+                    alt
+                ]))
+                for alt, data in variant.poly_aaa.items()
+            ]
+            """
 
 
 def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
@@ -799,22 +857,24 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript):
             variant.expression_up_in_X_cases = len(expression_up)
             variant.expression_down_in_X_cases = len(expression_down)
 
-            gtex_report += [(
-                variant.refsnp_id,
-                variant.expression_up_in_X_cases,
-                variant.expression_down_in_X_cases,
-                variant.expression_trend,
-                variant.poly_aaa_increase,
-                variant.poly_aaa_decrease,
-                variant.poly_aaa_change
-            )]
+            for alt, data in variant.poly_aaa.items():
+                gtex_report += [(
+                    variant.refsnp_id,
+                    variant.expression_up_in_X_cases,
+                    variant.expression_down_in_X_cases,
+                    variant.expression_trend,
+                    data.increased,
+                    data.decreased,
+                    data.change,
+                    alt
+                )]
 
         gtex_report_by_genes += [(
             gene,
             sum('up' in v.expression_trend for v in poly_a_related_variants),
             sum('down' in v.expression_trend for v in poly_a_related_variants),
-            sum(v.poly_aaa_increase for v in poly_a_related_variants),
-            sum(v.poly_aaa_decrease for v in poly_a_related_variants)
+            sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.values()),
+            sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.values())
         )]
 
     report(
@@ -851,10 +911,16 @@ def main(args, dataset):
         except Exception:
             traceback.print_exc()
     else:
-        with open('.variants_by_gene_by_transcript_new_two.cache', 'rb') as f:
+        with open('.variants_by_gene_by_transcript_37_all_alts.cache', 'rb') as f:
             variants_by_gene_by_transcript = pickle.load(f)
-        with open('.cosmic_genes_to_load_new_two.cache', 'rb') as f:
+        with open('.cosmic_genes_to_load_37_all_alts.cache', 'rb') as f:
             cosmic_genes_to_load = pickle.load(f)
+
+    try:
+        if 'gtex_over_api' in args.report:
+            gtex_over_api(variants_by_gene_by_transcript)
+    except Exception:
+        traceback.print_exc()
 
     try:
         if 'list_poly_aaa_variants' in args.report:
@@ -899,7 +965,7 @@ if __name__ == '__main__':
         nargs='+',
         choices=[
             'list_poly_aaa_variants', 'copy_number_expression',
-            'poly_aaa_vs_expression'
+            'poly_aaa_vs_expression', 'gtex_over_api'
         ],
         default=[]
     )
