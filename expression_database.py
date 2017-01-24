@@ -57,19 +57,27 @@ class ExpressionDatabase(BerkleyHashSet):
 
     def get_by_mutation(self, mutation):
 
-        key = '_'.join(map(str, [
-            mutation.chr_name,
-            int(mutation.chrom_start),   # use 0 based  # TODO check off by 1?
-            mutation.ref,
-            mutation.alt
-        ])) + '_b37'
+        results = {}
 
-        data = self[key]
+        print('Variant: %s' % mutation.refsnp_id)
+        for alt in mutation.alts:
+            key = '_'.join(map(str, [
+                mutation.chr_name,
+                int(mutation.chrom_start),   # use 0 based  # TODO check off by 1?
+                mutation.ref,
+                alt
+            ])) + '_b37'
 
-        return [
-            datum.split(',')
-            for datum in data
-        ]
+            print('Trying key: %s' % key)
+
+            data = self[key]
+
+            results[alt] = [
+                datum.split(',')
+                for datum in data
+            ]
+
+        return results
 
     def __getitem__(self, mutation_key):
         value = super(ExpressionDatabase, self).__getitem__(
