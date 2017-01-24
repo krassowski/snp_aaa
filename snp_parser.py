@@ -9,6 +9,8 @@ import sys
 import gc
 import traceback
 import cPickle as pickle
+import signal
+from multiprocessing import Pool
 from tqdm import tqdm
 from tqdm import trange
 from fasta_sequence_db import SequenceDB
@@ -513,6 +515,7 @@ def analyze_poly_a(variant, offset):
 
 def parse_gene_variants(item):
     gene, variants = item
+
     # Just to be certain
     variants_unique_ids = set(variant.refsnp_id for variant in variants)
     if len(variants_unique_ids) != len(variants):
@@ -557,31 +560,23 @@ def parse_gene_variants(item):
     return gene, correct_variants
 
 
-import signal
-
-
 def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def parse_variants(variants_by_gene):
-    from multiprocessing import Pool
     """
     vcf.parser uses 0-based coordinates:
     http://pyvcf.readthedocs.org/en/latest/_modules/vcf/parser.html?highlight=coordinates
     ensembl uses 1-based coordinates:
     http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
     """
+    print('Parsing variants:')
 
     variants_by_gene_by_transcript = {}
-
-    all_variants_count = 0
-    #all_variants_count += len(variants)
-
     cosmic_genes_to_load = set()
 
     parsing_pool = Pool(12, init_worker, maxtasksperchild=1)
-    print('Parsing variants:')
 
     for gene, variants in tqdm(parsing_pool.imap_unordered(
             parse_gene_variants,
@@ -606,76 +601,20 @@ def parse_variants(variants_by_gene):
             # from biomart inside the gene identifer (if it is abset, then we
             # have a canonical transcript, at least it is the best guess), eg.:
             # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
-
             gene_transcript_id = variant.gene
             transcript_id = gene_transcript_id
 
             by_transcript[transcript_id].append(variant)
 
         variants_by_gene_by_transcript[gene] = by_transcript
-
-
-    """
-    for gene, variants in tqdm(variants_by_gene.iteritems(), total=len(variants_by_gene)):
-
-        # Just to be certain
-        variants_unique_ids = set(variant.refsnp_id for variant in variants)
-        if len(variants_unique_ids) != len(variants):
-            raise Exception('Less unique ids than variants!')
-
-        print('Analysing:', len(variants), 'from', gene)
-        all_variants_count += len(variants)
-
-        #variants = parsing_pool.map(analyze_variant_here, variants)
-        #parsing_pool.get() # reraise exceptions ;)
-        # the construct below is used to workaround error of termination
-        # signals not being passed properly to the parent process
-        variants = parsing_pool.map_async(analyze_variant_here, variants).get(9999999)
-
-        gc.collect()
-
-        # Remove variants with non-complete data
-        correct_variants = filter(lambda variant: variant.correct, variants)
-
-        # TODO
-        # Remove variants from source other than COSMIC (later I am processing
-        # cosmic-specific data so db_snp variants are not relevant here)
-        # correct_variants = filter(
-        #    lambda variant: variant.refsnp_source == 'COSMIC',
-        #    list(correct_variants)
-        # )
-
-        cosmic_genes_to_load.update(
-            [
-                variant.gene
-                for variant in correct_variants
-            ]
-        )
-
-        by_transcript = defaultdict(list)
-
-        for variant in correct_variants:
-            # The problem with the ensembl's biomart is that it returns records
-            # from cosmic without information about the transcript, so we have
-            # often a few identical records with only the refsnp_id different,
-            # as for example: COSM3391893, COSM3391894
-            # Fortunately the transcript id is encoded inside vcf_data retrived
-            # from biomart inside the gene identifer (if it is abset, then we
-            # have a canonical transcript, at least it is the best guess), eg.:
-            # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
-
-            gene_transcript_id = variant.gene
-            transcript_id = gene_transcript_id
-
-            by_transcript[transcript_id].append(variant)
-
-        variants_by_gene_by_transcript[gene] = by_transcript
-
-    """
-
-    o.print('All variants', all_variants_count)
 
     parsing_pool.close()
+
+    all_variants_count = sum(
+        len(variants) for variants in
+        variants_by_gene.values()
+    )
+    print('All variants', all_variants_count)
 
     return variants_by_gene_by_transcript, cosmic_genes_to_load
 
