@@ -60,11 +60,13 @@ class ExpressionDatabase(BerkleyHashSet):
         results = {}
 
         print('Variant: %s' % mutation.refsnp_id)
-        for alt in mutation.alts:
+
+        for chr, pos, ref, alt in mutation.padded_coords:
+
             key = '_'.join(map(str, [
-                mutation.chr_name,
-                int(mutation.chrom_start),   # use 0 based  # TODO check off by 1?
-                mutation.ref,
+                chr,
+                pos,
+                ref,
                 alt
             ])) + '_b37'
 

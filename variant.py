@@ -1,5 +1,8 @@
 class Variant(object):
 
+    # sequence offset
+    offset = 20
+
     attributes = (
         'refsnp_id',
         'refsnp_source',
@@ -38,6 +41,29 @@ class Variant(object):
             representation += '\n\t %s: %s' % (attr, getattr(self, attr))
 
         return representation
+
+    @property
+    def padded_coords(self):
+
+        for alt in self.alts:
+
+            pos = int(self.chrom_start)
+            ref = self.ref
+
+            if len(alt) != len(ref):
+                # right padding
+                if pos == 1:
+                    next_aa = self.sequence[self.offset + 1]
+                    ref = ref + next_aa
+                    alt = alt + next_aa
+                # left padding
+                else:
+                    pos -= 1
+                    prev_aa = self.sequence[self.offset - 1]
+                    ref = prev_aa + ref
+                    alt = prev_aa + alt
+
+            yield (self.chr_name, pos, ref, alt)
 
     @property
     def length(self):

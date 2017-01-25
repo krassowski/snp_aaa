@@ -412,6 +412,8 @@ vcf_locations = {
     #'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
     'dbSNP': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
     GRCH_SUBVERSION + '/00-All.vcf.gz',
+    'ClinVar': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
+    GRCH_SUBVERSION + '/00-All.vcf.gz',
     'other': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz'
 }
 
