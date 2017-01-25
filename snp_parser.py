@@ -7,6 +7,7 @@ import vcf
 import os
 import sys
 import gc
+import re
 import traceback
 import cPickle as pickle
 import signal
@@ -365,17 +366,18 @@ class VariantCallFormatParser(object):
         # left side padding, most common
         if alt[0] == ref[0]:
             left += 1
-
         # right side padding, pos should be one
-        if alt[-1] == ref[-1]:
-            right += 1
-            if vcf_data.POS != 1:
-                raise ParsingError(
-                    'Wrong padding detected (left while pos: ' + vcf_data.POS +
-                    ') where raw ref: "%s" and analysed alt: "%s"' % (ref, alt)
+        elif alt[-1] == ref[-1]:
+            if vcf_data.POS == 1:
+                right += 1
+            else:
+                print(
+                    'Unusual padding detected (left while pos: %s) '
+                    'where raw ref: "%s" and analysed alt: "%s"' %
+                    (vcf_data.POS, ref, alt)
                 )
 
-        pos = vcf_data.POS + left - right
+        pos = vcf_data.POS + left
         ref = ref[left:-right or None]
         alts = [a[left:-right or None] for a in alts]
 
@@ -394,6 +396,17 @@ class VariantCallFormatParser(object):
 
         return pos, ref, alts
 
+    @staticmethod
+    def get_gene(vcf_data):
+        try:
+            gene = vcf_data.INFO['GENEINFO'].split(':')[0]
+        except KeyError:
+            try:
+                gene = vcf_data.INFO['GENE'][0]
+            except KeyError:
+                gene = None
+        return gene
+
 
 vcf_locations = {
     #'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
@@ -401,6 +414,68 @@ vcf_locations = {
     GRCH_SUBVERSION + '/00-All.vcf.gz',
     'other': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz'
 }
+
+
+def decode_phen_code(code):
+    """
+    Comply to HGVS recommendations: http://www.hgvs.org/mutnomen/recs.html
+
+    tests = [
+        'FANCD1:c.658_659delGT',
+        'FANCD1:c.5682C>G',
+        'FANCD1:c.6275_6276delTT',
+        'FANCD1:c.8504C>A',
+        'FANCD1:c.5609_5610delTCinsAG',
+        'FANCD1:c.1813dupA',
+        'FANCD1:c.8219T>A',
+        'FANCD1:c.9672dupA'
+    ]
+    """
+    # TODO testy
+    gene, location = code.split(':')
+    type = location[0]
+
+    match = re.match(
+        '([\d]+)(_[\d]+)?([ACTG]+)?(dup|>|del|ins)([ACTG]+)(dup|>|del|ins)?([ACTG]+)?',
+        code
+    )
+
+    # genomic and mitohondrial positions can be validated easily
+    if type in ('g', 'm'):
+        pos = match.group(1)
+    elif type in ('c', 'n', 'p'):
+        pos = None
+    else:
+        raise ParsingError(
+            'Wrong type of variant position specification: %s' % type
+        )
+
+    event = match.group(4)
+    second_event = match.group(6)
+
+    if second_event:
+        if event == 'del' and second_event == 'ins':
+            ref = match.group(5)
+            alt = match.group(7)
+        else:
+            raise ParsingError(
+                'Unknown complicated event: %s and then %s' % (
+                    event,
+                    second_event
+                )
+            )
+    else:
+        if event == '>':
+            ref = match.group(3)
+            alt = match.group(5)
+        elif event in ('dup', 'ins'):
+            ref = ''
+            alt = match.group(5)
+        elif event == 'del':
+            ref = match.group(5)
+            alt = ''
+
+    return gene, pos, ref, alt
 
 
 def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
@@ -431,50 +506,59 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
     seq_ref = variant.sequence[offset:-offset]
     #print('Context: ' + show_pos_with_context(seq, offset, -offset))
 
-    try:
-        vcf_data = vcf_parser.get_by_variant(variant)
-        vcf_pos, vcf_ref, vcf_alts = vcf_parser.parse(vcf_data)
-    except ParsingError as e:
-        print(
-            'Skipping variant: %s from %s:' % (
-                variant.refsnp_id,
-                variant.refsnp_source
-            ),
-            end=' '
-        )
-        print(e.message)
-        variant.correct = False
-        return False
+    if variant.source == 'PhenCode':
+        alt_source = 'PhenCode'
+        gene, pos, ref, alt = decode_phen_code(variant.refsnp_id)
+        alts = [alt]
+    else:
+        alt_source = 'VCF'
 
-    variant.alts = vcf_alts
+        try:
+            vcf_data = vcf_parser.get_by_variant(variant)
+            pos, ref, alts = vcf_parser.parse(vcf_data)
+            gene = vcf_parser.get_gene(vcf_data)
+        except ParsingError as e:
+            print(
+                'Skipping variant: %s from %s:' % (
+                    variant.refsnp_id,
+                    variant.refsnp_source
+                ),
+                end=' '
+            )
+            print(e.message)
+            variant.correct = False
+            return False
+
+    variant.alts = alts
     variant.ref = seq_ref
 
-    if vcf_ref != seq_ref:
+    # HGNC Gene:
+    # this causes a problem with CNV mappings
+    # should I use that at all?
+    if gene:
+        variant.gene = gene
+    else:
+        print('Neither GENEINFO nor GENE are available for', variant.refsnp_id)
+        variant.correct = False
+        return
+
+    # check ref sequence
+    if ref != seq_ref:
         print(
-            'VCF says ref is %s, but sequence analysis pointed to %s for %s'
-            % (vcf_ref, seq_ref, variant.refsnp_id)
+            '%s says ref is %s, but sequence analysis pointed to %s for %s'
+            % (alt_source, ref, seq_ref, variant.refsnp_id)
         )
 
-    if variant.chrom_start != vcf_pos:
+    # check pos
+    if variant.chrom_start != pos:
         print(
-            'Positions are not matching between VCF file and biomart for %s '
+            'Positions are not matching between %s file and biomart for %s '
             'with ref: %s and alt: %s where positions are: biomart: %s vcf: %s'
             % (
-                variant.refsnp_id, vcf_ref, vcf_alts,
-                variant.chrom_start, vcf_pos
+                alt_source, variant.refsnp_id, ref, alts,
+                variant.chrom_start, pos
             )
         )
-
-    # this causes a problem with CNV mappings
-    try:
-        variant.gene = vcf_data.INFO['GENEINFO'].split(':')[0]
-    except KeyError:
-        try:
-            variant.gene = vcf_data.INFO['GENE'][0]
-        except KeyError:
-            print('Neither GENEINFO nor GENE are available in VCF for', variant.refsnp_id)
-            variant.correct = False
-            return
 
     analyze_poly_a(variant, offset)
 
