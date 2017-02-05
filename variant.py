@@ -11,7 +11,7 @@ class Variant(object):
         'chrom_end',
         # 'allele',  # Variant Alleles
         'allele_1',  # Ancestral allele - the most frequent allele
-        'minor_allele', # the second most frequent allele
+        'minor_allele',     # the second most frequent allele
         'chrom_strand',
         'cdna_start',
         'cdna_end',

@@ -3,7 +3,6 @@
 
 from __future__ import print_function
 from collections import defaultdict
-import vcf
 import os
 import sys
 import gc
@@ -25,6 +24,8 @@ from berkley_hash_set import BerkleyHashSet
 from poly_a import poly_a
 from variant import Variant
 from variant import PolyAAAData
+from vcf_parser import ParsingError
+from vcf_parser import VariantCallFormatParser
 
 
 o = OutputFormatter()
@@ -275,139 +276,6 @@ def choose_best_seq(reference_seq):
     return reference_seq[chosen]
 
 
-class ParsingError(Exception):
-    pass
-
-
-class VariantCallFormatParser(object):
-
-    def __init__(self, vcf_locations):
-
-        self.readers = {
-            source: vcf.Reader(filename=path)
-            for source, path in vcf_locations.items()
-        }
-
-    def get_by_variant(self, variant):
-
-        pos = [str(variant.chr_name), variant.chrom_start, variant.chrom_end]
-
-        # to get to vcf stored data by vcf reader, change coordinates to 0-based
-        pos[1] -= 1
-        pos[2] -= 1
-
-        # and represent them as a range
-        pos[2] += 1
-
-        source = variant.refsnp_source
-        record_id = variant.refsnp_id
-
-        if source not in self.readers:
-            source = 'other'
-
-            hgnc_name = get_hgnc(variant.ensembl_transcript_stable_id)
-
-            record_id = ''.join([
-                hgnc_name, ':c.', variant.cds_start,
-                variant.allele_1, '>', variant.minor_allele
-            ])
-
-        return self.get_by_id(source, pos, record_id)
-
-    def get_by_id(self, reader_name, pos, record_id):
-
-        reader = self.readers[reader_name]
-        vcf_data = None
-
-        for record in reader.fetch(*pos):
-            if record.ID == record_id:
-                vcf_data = record
-                break
-
-        return vcf_data
-
-    @staticmethod
-    def parse(vcf_data):
-        """Parse VCF data, retrieved with retrieve() func, with
-        compliance to VCF 4.3 specification, particularly:
-
-        "For simple insertions and deletions in which either the REF or one of
-        the ALT alleles would otherwise be null/empty, the REF and ALT.
-        Strings must include the base before the event (which must be reflected
-        in the POS field), unless the event occurs at position 1 on the contig
-        in which case it must include the base after the event; this padding base
-        is not required (although it is permitted) for e.g. complex substitutions
-        or other events where all alleles have at least
-        one base represented in their Strings"
-
-        Returns:
-            tuple: (position, reference alelle, alternative alleles)
-        """
-        if not vcf_data:
-            raise ParsingError('Lack of VCF data.')
-
-        if len(vcf_data.ALT) == 0:
-            raise ParsingError('Lack of ALT.')
-
-        ref = str(vcf_data.REF)
-        alts = list(map(str, vcf_data.ALT))
-
-        # let's recognize indel mutations and remove vcf padding from alt/ref variables
-        left = 0
-        right = 0
-
-        # padding should be possible to determine from any of alternative
-        # allele strings, so why not to get the first one?
-        alt = alts[0]
-        # but, to be certain, lets check if all alts are of the same length:
-        if any(len(a) != len(alt) for a in alts):
-            raise ParsingError('Alts are of different lengths: ' + str(alts))
-
-        # left side padding, most common
-        if alt[0] == ref[0]:
-            left += 1
-        # right side padding, pos should be one
-        elif alt[-1] == ref[-1]:
-            if vcf_data.POS == 1:
-                right += 1
-            else:
-                print(
-                    'Unusual padding detected (left while pos: %s) '
-                    'where raw ref: "%s" and analysed alt: "%s"' %
-                    (vcf_data.POS, ref, alt)
-                )
-
-        pos = vcf_data.POS + left
-        ref = ref[left:-right or None]
-        alts = [a[left:-right or None] for a in alts]
-
-        # validation
-        if left and right:
-            raise ParsingError(
-                'Wrong padding detected: both left and right present' +
-                'where ref: "%s" and analysed alt: "%s"' % (ref, alt)
-            )
-
-        if not (left or right) and len(ref) != len(alt):
-            raise ParsingError(
-                'No padding detected despite alt/ref of different lengths ' +
-                'where ref: "%s" and analysed alt: "%s"' % (ref, alt)
-            )
-
-        return pos, ref, alts
-
-    @staticmethod
-    def get_gene(vcf_data):
-        try:
-            gene = vcf_data.INFO['GENEINFO'].split(':')[0]
-        except KeyError:
-            try:
-                gene = vcf_data.INFO['GENE'][0]
-            except KeyError:
-                gene = None
-        return gene
-
-
 vcf_locations = {
     #'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
     'dbSNP': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
@@ -508,7 +376,7 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
     seq_ref = variant.sequence[offset:-offset]
     #print('Context: ' + show_pos_with_context(seq, offset, -offset))
 
-    if variant.source == 'PhenCode':
+    if variant.refsnp_source == 'PhenCode':
         alt_source = 'PhenCode'
         gene, pos, ref, alt = decode_phen_code(variant.refsnp_id)
         alts = [alt]
@@ -647,6 +515,10 @@ def parse_gene_variants(item):
 
 
 def init_worker():
+    """Initialization with this function allows to terminate app
+
+    with Ctrl+C even when multiprocessing computation is ongoing.
+    """
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
@@ -759,9 +631,6 @@ def get_all_variants(variants_by_transcript, gene, report_duplicated=True):
 
 def select_poly_a_related_variants(variants):
 
-    for variant in variants:
-        analyze_poly_a(variant, 20)
-
     return [
         variant
         for variant in variants
@@ -809,24 +678,43 @@ def gtex_over_api(variants_by_gene_by_transcript):
 
     variant_aaa_report = []
 
-    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+    for gene, variants_by_transcript in tqdm(variants_by_gene_by_transcript.iteritems()):
 
         # treat all variants the same way - just remove duplicates
         variants = get_all_variants(variants_by_transcript, gene)
-
         poly_a_related_variants = select_poly_a_related_variants(variants)
 
-        variant_aaa_report += ['# ' + gene]
+        """
+        print(
+            'Checikng %s (out of %s) poly A related variants from %s.' %
+            (
+                len(poly_a_related_variants),
+                len(variants),
+                gene
+            )
+        )
+        """
 
-        for variant in poly_a_related_variants:
+        for variant in tqdm(poly_a_related_variants):
 
-            server = "http://rest.ensembl.org"
-            ext = "/eqtl/variant_name/homo_sapiens/" + variant.refsnp_id + '?statistic=p-value;content-type=application/json'
-            "rs17438086?statistic=p-value;stable_id=ENSG00000162627;tissue=Adipose_Visceral_Omentum"
-            u_a = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.82 Safari/537.36"
+            #from expression_database import TISSUES_LIST as tissues
+
+            server = 'http://rest.ensembl.org'
+            #for tissue in tissues:
+            ext = '/eqtl/variant_name/homo_sapiens/' + variant.refsnp_id + '?statistic=p-value;content-type=application/json'
+
+            #"rs17438086?statistic=p-value;stable_id=ENSG00000162627;tissue="
+
+            u_a = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/48.0.2564.82 Safari/537.36'
 
             try:
-                r = requests.get(server+ext, headers={"USER-AGENT": u_a, "content-type": "application/json"})
+                r = requests.get(
+                    server + ext,
+                    headers={
+                        'USER-AGENT': u_a,
+                        'content-type': 'application/json'
+                    }
+                )
 
                 if not r.ok:
                     r.raise_for_status()
@@ -840,18 +728,6 @@ def gtex_over_api(variants_by_gene_by_transcript):
 
             except:
                 pass
-            """
-            variant_aaa_report += [
-                '\t'.join(map(str, [
-                    variant.refsnp_id,
-                    data.increased,
-                    data.decreased,
-                    data.change,
-                    alt
-                ]))
-                for alt, data in variant.poly_aaa.items()
-            ]
-            """
 
 
 def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
@@ -880,9 +756,6 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
         # treat all variants the same way - just remove duplicates
         variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
 
-        for variant in variants:
-            analyze_poly_a(variant, 20)
-
         """
         # for this analysis consider only variants from cosmic
         variants = [
@@ -894,35 +767,22 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
 
         variants_count += len(variants)
 
-        o.print(gene, 'with its', len(variants), 'variants analysed')
-
-        poly_a_variants = filter(
-            lambda variant: variant.has_poly_a,
-            variants
-        )
-
-        poly_a_potential_variants = filter(
-            lambda variant: variant.will_have_poly_a,
-            variants
-        )
+        print(gene, 'with its', len(variants), 'variants analysed')
 
         # loss of poly_aaa, decrease in length (-1 per residue)
         decrease = 0
         # gain of poly_aaa: , increase in length (+1 per residue)
         increase = 0
 
-        # the same as: poly_a_related_variants = select_poly_a_related_variants(variants)
-        poly_a_related_variants = list(poly_a_variants + poly_a_potential_variants)
+        poly_a_related_variants = select_poly_a_related_variants(variants)
         poly_a_related_variants_count += len(poly_a_related_variants)
 
         # give scores for length increase
         for variant in poly_a_related_variants:
-            if variant.poly_aaa_increase:
+            if variant.poly_aaa.increased:
                 increase += 1
-            elif variant.poly_aaa_decrease:
+            elif variant.poly_aaa.decreased:
                 decrease += 1
-
-        assert increase >= len(poly_a_potential_variants) - len(poly_a_variants)
 
         cnv_aaa_report += [
             (gene, expression[0], expression[2], increase, decrease)
@@ -1323,27 +1183,5 @@ if __name__ == '__main__':
         )
 
     if run and not args.reload_variants:
-
-        def analyze_variant_here(variant):
-
-            constructors = [cachable_dna_db, cachable_cds_db, cachable_cdna_db]
-
-            databases = [
-                db()
-                for db in constructors
-            ]
-
-            try:
-                analyze_variant(
-                    variant,
-                    *databases
-                )
-            except Exception:
-                traceback.print_exc()
-                variant.correct = False
-
-            del databases
-
-            return variant
 
         main(args, snp_dataset)
