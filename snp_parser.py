@@ -3,6 +3,7 @@
 
 from __future__ import print_function
 from collections import defaultdict
+from collections import OrderedDict
 import os
 import sys
 import gc
@@ -28,6 +29,13 @@ from vcf_parser import ParsingError
 from vcf_parser import VariantCallFormatParser
 
 
+REPORTERS = OrderedDict()
+
+def reporter(func):
+    REPORTERS[func.__name__] = func
+    return func
+
+
 o = OutputFormatter()
 
 
@@ -36,6 +44,17 @@ GRCH_SUBVERSION = '13'
 ENSEMBL_VERSION = '75'
 COSMIC_VERSION = '79'
 DBSNP_VERSION = '149'
+SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex.tab.gz'
+
+
+vcf_locations = {
+    #'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
+    'dbSNP': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
+    GRCH_SUBVERSION + '/00-All.vcf.gz',
+    'ClinVar': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
+    GRCH_SUBVERSION + '/00-All.vcf.gz',
+    'ensembl': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz'
+}
 
 
 class VariantsData(BiomartData):
@@ -276,16 +295,6 @@ def choose_best_seq(reference_seq):
     return reference_seq[chosen]
 
 
-vcf_locations = {
-    #'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
-    'dbSNP': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
-    GRCH_SUBVERSION + '/00-All.vcf.gz',
-    'ClinVar': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
-    GRCH_SUBVERSION + '/00-All.vcf.gz',
-    'other': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz'
-}
-
-
 def decode_phen_code(code):
     """
     Comply to HGVS recommendations: http://www.hgvs.org/mutnomen/recs.html
@@ -385,8 +394,14 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
 
         try:
             vcf_data = vcf_parser.get_by_variant(variant)
-            pos, ref, alts = vcf_parser.parse(vcf_data)
-            gene = vcf_parser.get_gene(vcf_data)
+            if len(vcf_data) > 1:
+                print(
+                    'VCF data containts more than one record matching %s'
+                    'variant: %s ' % (variant.refsnp_id, vcf_data)
+                )
+            analysed_vcf_record = vcf_data[0]
+            pos, ref, alts = vcf_parser.parse(analysed_vcf_record)
+            gene = vcf_parser.get_gene(analysed_vcf_record)
         except ParsingError as e:
             print(
                 'Skipping variant: %s from %s:' % (
@@ -477,7 +492,10 @@ def parse_gene_variants(item):
 
     print('Analysing:', len(variants), 'from', gene)
 
-    vcf_parser = VariantCallFormatParser(vcf_locations)
+    vcf_parser = VariantCallFormatParser(
+        vcf_locations,
+        default_source='ensembl'
+    )
 
     constructors = [cachable_dna_db, cachable_cds_db, cachable_cdna_db]
 
@@ -641,6 +659,66 @@ def select_poly_a_related_variants(variants):
     ]
 
 
+@reporter
+def summarize_spidex(variants_by_gene_by_transcript):
+
+    import tabix
+    from recordclass import recordclass
+
+    headers = [
+        'chromosome', 'position', 'ref_allele', 'mut_allele',
+        'dpsi_max_tissue', 'dpsi_zscore', 'gene', 'strand', 'transcript',
+        'exon_number', 'location', 'cds_type', 'ss_dist', 'commonSNP_rs'
+    ]
+
+    SpidexRecord = recordclass('SpidexRecord', headers)
+
+    tb = tabix.open(SPIDEX_LOCATION)
+
+    variant_aaa_report = []
+
+    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+
+        # treat all variants the same way - just remove duplicates
+        variants = get_all_variants(variants_by_transcript, gene)
+
+        poly_a_related_variants = select_poly_a_related_variants(variants)
+
+        variant_aaa_report.append('# ' + gene)
+
+        for variant in poly_a_related_variants:
+            for alt, data in variant.poly_aaa.items():
+
+                records = [
+                    SpidexRecord(*record)
+                    for record in tb.query(
+                        'chr' + variant.chr_name,
+                        variant.chrom_start - 10,
+                        variant.chrom_end + 10
+                    )
+                ]
+
+                for record in records:
+                    print(record)
+
+                record = '\t'.join(map(str, [
+                    variant.refsnp_id,
+                    data.increased,
+                    data.decreased,
+                    data.change,
+                    alt
+                ]))
+                print(record)
+                variant_aaa_report.append(record)
+
+    report(
+        'spidex',
+        variant_aaa_report,
+        'header = TODO'
+    )
+
+
+@reporter
 def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
 
     variant_aaa_report = []
@@ -672,6 +750,7 @@ def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
     )
 
 
+@reporter
 def gtex_over_api(variants_by_gene_by_transcript):
     import requests
     import sys
@@ -730,6 +809,7 @@ def gtex_over_api(variants_by_gene_by_transcript):
                 pass
 
 
+@reporter
 def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
 
     variants_count = 0
@@ -819,6 +899,7 @@ def get_all_used_transcript_ids(variants_by_gene):
     return transcripts_ids
 
 
+@reporter
 def poly_aaa_vs_expression(variants_by_gene_by_transcript):
 
     from expression_database import ExpressionDatabase
@@ -959,38 +1040,26 @@ def main(args, dataset):
         with open('.cosmic_genes_to_load_37_all_alts.cache', 'rb') as f:
             cosmic_genes_to_load = pickle.load(f)
 
-    try:
-        if 'gtex_over_api' in args.report:
-            gtex_over_api(variants_by_gene_by_transcript)
-    except Exception:
-        traceback.print_exc()
 
-    try:
-        if 'list_poly_aaa_variants' in args.report:
-            summarize_poly_aaa_variants(variants_by_gene_by_transcript)
-    except Exception:
-        traceback.print_exc()
+    for reporter_name in args.report:
+        reporter = REPORTERS[reporter_name]
 
-    try:
-        if 'copy_number_expression' in args.report:
-            # TODO to cache again later
-            @cached(action='load')
-            def cachable_cna():
-                return CompleteCNA(
-                    'cosmic/v' + COSMIC_VERSION + '/CosmicCompleteCNA.tsv',
-                    restrict_to=cosmic_genes_to_load
-                )
+        try:
+            if reporter_name != 'copy_number_expression':
+                reporter(variants_by_gene_by_transcript)
+            else:
+                # TODO to cache again later
+                @cached(action='load')
+                def cachable_cna():
+                    return CompleteCNA(
+                        'cosmic/v' + COSMIC_VERSION + '/CosmicCompleteCNA.tsv',
+                        restrict_to=cosmic_genes_to_load
+                    )
 
-            cna = cachable_cna()
-            summarize_copy_number_expression(variants_by_gene_by_transcript, cna)
-    except Exception:
-        traceback.print_exc()
-
-    try:
-        if 'poly_aaa_vs_expression' in args.report:
-            poly_aaa_vs_expression(variants_by_gene_by_transcript)
-    except Exception:
-        traceback.print_exc()
+                cna = cachable_cna()
+                reporter(variants_by_gene_by_transcript, cna)
+        except Exception:
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
@@ -1006,10 +1075,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--report',
         nargs='+',
-        choices=[
-            'list_poly_aaa_variants', 'copy_number_expression',
-            'poly_aaa_vs_expression', 'gtex_over_api'
-        ],
+        choices=REPORTERS.keys(),
         default=[]
     )
     parser.add_argument('--profile', action='store_true')

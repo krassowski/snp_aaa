@@ -30,16 +30,32 @@ class ParsingError(Exception):
 
 class VariantCallFormatParser(object):
 
-    def __init__(self, vcf_locations):
-
+    def __init__(self, vcf_locations, default_source=None, prepend_chr=False):
+        """
+        vcf_locations: mappings name -> location for VCF files to use
+        default_source: name of default VCF file to be used
+        preprend_chr: use long (chr1) chromosome names instead of short (1)
+        """
+        self.prepend_chr = prepend_chr
+        self.default_source = default_source
         self.readers = {
             source: vcf.Reader(filename=path)
             for source, path in vcf_locations.items()
         }
 
-    def get_by_variant(self, variant):
+    def get_by_variant(self, variant, source=None, require_id_match=True):
+        """Get vcf data for given variant from one of available VCF files.
 
-        pos = [str(variant.chr_name), variant.chrom_start, variant.chrom_end]
+        If source is given, the VCF file matching this source will be used;
+        otherwise the source will be deduced from variant.refsnp_source attr
+
+        Returns:
+            list of vcf records as returned by vcf.fetch()
+        """
+        chrom = str(variant.chr_name)
+        if self.prepend_chr and not chrom.startswith('chr'):
+            chrom = 'chr' + chrom
+        pos = [chrom, variant.chrom_start, variant.chrom_end]
 
         # to get to vcf stored data by vcf reader, change coordinates to 0-based
         pos[1] -= 1
@@ -52,7 +68,13 @@ class VariantCallFormatParser(object):
         record_id = variant.refsnp_id
 
         if source not in self.readers:
-            source = 'other'
+            source = self.default_source
+
+            if not source:
+                raise ParsingError(
+                    'Either source or default_source must be present'
+                    'to choose vcf file to look up'
+                )
 
             hgnc_name = get_hgnc(variant.ensembl_transcript_stable_id)
 
@@ -61,17 +83,38 @@ class VariantCallFormatParser(object):
                 variant.allele_1, '>', variant.minor_allele
             ])
 
-        return self.get_by_id(source, pos, record_id)
+        if require_id_match:
+            return self.get_by_id(source, pos, record_id)
+        else:
+            return self.get_by_pos(source, pos)
+
+    def get_by_pos(self, reader_name, pos):
+        try:
+            reader = self.readers[reader_name]
+        except KeyError:
+            raise ParsingError(
+                '%s is not a known source for VCF file. '
+                'Known sources are: %s.' % (
+                    reader_name,
+                    self.readers.keys()
+                )
+            )
+
+        vcf_data = []
+
+        for record in reader.fetch(*pos):
+            vcf_data.append(record)
+
+        return vcf_data
+
 
     def get_by_id(self, reader_name, pos, record_id):
 
-        reader = self.readers[reader_name]
-        vcf_data = None
+        vcf_data = []
 
-        for record in reader.fetch(*pos):
+        for record in self.get_by_pos(reader_name, pos):
             if record.ID == record_id:
-                vcf_data = record
-                break
+                vcf_data.append(record)
 
         return vcf_data
 
