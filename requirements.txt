@@ -1,0 +1,6 @@
+pytabix
+recordclass
+pyvcf
+pysam
+requests
+tqdm

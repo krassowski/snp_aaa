@@ -66,9 +66,12 @@ git clone https://github.com/krassowski/biomart
 Other dependencies (vcf and tabix parser) might be installed easily with use of pip:
 
 ```
+python2 -m pip install -r requirements.txt
+```
+or
+```
 pip install -r requirements.txt
 ```
-
 You will also need to have `samtools` or at least `htslib` installed.
 
 ### Databases download
