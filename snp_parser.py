@@ -44,7 +44,7 @@ GRCH_SUBVERSION = '13'
 ENSEMBL_VERSION = '75'
 COSMIC_VERSION = '79'
 DBSNP_VERSION = '149'
-SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex.tab.gz'
+SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
 
 
 vcf_locations = {
@@ -662,6 +662,9 @@ def select_poly_a_related_variants(variants):
 @reporter
 def summarize_spidex(variants_by_gene_by_transcript):
 
+    def to_tsv_row(data):
+        return '\t'.join(map(str, data))
+
     import tabix
     from recordclass import recordclass
 
@@ -675,7 +678,8 @@ def summarize_spidex(variants_by_gene_by_transcript):
 
     tb = tabix.open(SPIDEX_LOCATION)
 
-    variant_aaa_report = []
+    spidex_report = []
+    to_test_online = []
 
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
@@ -684,36 +688,90 @@ def summarize_spidex(variants_by_gene_by_transcript):
 
         poly_a_related_variants = select_poly_a_related_variants(variants)
 
-        variant_aaa_report.append('# ' + gene)
-
         for variant in poly_a_related_variants:
+
+            pos = [
+                'chr' + variant.chr_name,
+                variant.chrom_start - 1,
+                variant.chrom_end
+            ]
+
+            records = [
+                SpidexRecord(*record)
+                for record in tb.query(*pos)
+            ]
+
             for alt, data in variant.poly_aaa.items():
 
-                records = [
-                    SpidexRecord(*record)
-                    for record in tb.query(
-                        'chr' + variant.chr_name,
-                        variant.chrom_start - 10,
-                        variant.chrom_end + 10
-                    )
-                ]
-
-                for record in records:
-                    print(record)
-
-                record = '\t'.join(map(str, [
-                    variant.refsnp_id,
+                variant_data = [
+                    variant.chr_name,
+                    variant.chrom_start,
+                    variant.chrom_end,
+                    variant.ref,
+                    alt,
+                    gene,
+                    variant.chrom_strand,
+                    variant.ensembl_transcript_stable_id,
                     data.increased,
                     data.decreased,
                     data.change,
-                    alt
-                ]))
-                print(record)
-                variant_aaa_report.append(record)
+                    variant.refsnp_id,
+                ]
+
+
+                relevant_records = [
+                    record
+                    for record in records
+                    if record.mut_allele == alt
+                ]
+
+                if not relevant_records:
+                    what = [pos + [alt]]
+                    to_test_online.append(
+                        to_tsv_row(what)
+                    )
+
+                for record in relevant_records:
+
+                    if record.ref_allele != variant.ref:
+                        print(
+                            'Reference mismatch for %s!' %
+                            variant.refsnp_id
+                        )
+                        continue
+                    if record.location == 'intronic':
+                        print(
+                            'Skipping intronic record for: %s' %
+                            variant.refsnp_id
+                        )
+                        continue
+
+                    strand = '1' if record.strand == '+' else '0'
+
+                    if variant.chrom_strand != strand:
+                        print(
+                            'Skipping record for: %s - '
+                            'incorrect strand %s in variant vs %s in record' %
+                            (variant.refsnp_id, variant.chrom_strand, strand)
+                        )
+                        continue
+
+                    #print(to_tsv_row(variant_data))
+                    #print(record)
+
+                    data = variant_data
+                    data += [record.dpsi_max_tissue, record.dpsi_zscore]
+
+                    spidex_report.append(to_tsv_row(data))
 
     report(
         'spidex',
-        variant_aaa_report,
+        spidex_report,
+        'header = TODO'
+    )
+    report(
+        'spidex_to_test_online',
+        to_test_online,
         'header = TODO'
     )
 
