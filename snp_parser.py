@@ -660,7 +660,7 @@ def select_poly_a_related_variants(variants):
 
 
 @reporter
-def summarize_spidex(variants_by_gene_by_transcript):
+def spidex(variants_by_gene_by_transcript):
 
     def to_tsv_row(data):
         return '\t'.join(map(str, data))
@@ -1095,8 +1095,6 @@ def main(args, dataset):
     else:
         with open('.variants_by_gene_by_transcript_37_all_alts.cache', 'rb') as f:
             variants_by_gene_by_transcript = pickle.load(f)
-        with open('.cosmic_genes_to_load_37_all_alts.cache', 'rb') as f:
-            cosmic_genes_to_load = pickle.load(f)
 
 
     for reporter_name in args.report:
@@ -1106,6 +1104,8 @@ def main(args, dataset):
             if reporter_name != 'copy_number_expression':
                 reporter(variants_by_gene_by_transcript)
             else:
+                with open('.cosmic_genes_to_load_37_all_alts.cache', 'rb') as f:
+                    cosmic_genes_to_load = pickle.load(f)
                 # TODO to cache again later
                 @cached(action='load')
                 def cachable_cna():
