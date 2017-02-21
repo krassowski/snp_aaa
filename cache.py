@@ -22,7 +22,7 @@ def cached(action='load'):
                             'Unable to load cache for %s. '
                             'Please, make sure that the cache files correspond'
                             ' to this version of application.\n'
-                            'Oryginal exception: %s.' %
+                            'Original exception: %s.' %
                             (display_name, e.message)
                         )
                 # print('"' + display_name + '" data loaded from cache')
