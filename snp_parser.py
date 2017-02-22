@@ -618,9 +618,8 @@ def report(name, data, column_names=()):
     path = os.path.join(directory, filename)
 
     with open(path, 'w') as f:
-        f.write('# ' + name + '\n')
         if column_names:
-            f.write('#' + '\t'.join(column_names) + '\n')
+            f.write('\t'.join(column_names) + '\n')
         f.write('\n'.join(data))
 
     print('Created report "%s" with %s entries' % (name, len(data)))
@@ -678,251 +677,6 @@ def all_poly_a_variants(variants_by_gene_by_transcript):
 
         for variant in poly_a_related_variants:
             yield variant
-
-
-@reporter
-def spidex(variants_by_gene_by_transcript):
-
-    def to_tsv_row(data):
-        return '\t'.join(map(str, data))
-
-    import tabix
-    from recordclass import recordclass
-
-    headers = [
-        'chromosome', 'position', 'ref_allele', 'mut_allele',
-        'dpsi_max_tissue', 'dpsi_zscore', 'gene', 'strand', 'transcript',
-        'exon_number', 'location', 'cds_type', 'ss_dist', 'commonSNP_rs'
-    ]
-
-    SpidexRecord = recordclass('SpidexRecord', headers)
-
-    tb = tabix.open(SPIDEX_LOCATION)
-
-    spidex_raw_report = []
-    spidex_report = []
-    to_test_online = []
-
-    for variant in all_poly_a_variants(variants_by_gene_by_transcript):
-
-        pos = [
-            'chr' + variant.chr_name,
-            variant.chrom_start - 1,
-            variant.chrom_end
-        ]
-
-        records = [
-            SpidexRecord(*record)
-            for record in tb.query(*pos)
-        ]
-
-        for alt, aaa_data in variant.poly_aaa.items():
-
-            variant_data = [
-                variant.chr_name,
-                variant.chrom_start,
-                variant.chrom_end,
-                variant.ref,
-                alt,
-                variant.ensembl_gene_stable_id,
-                variant.chrom_strand,
-                variant.ensembl_transcript_stable_id,
-                aaa_data.increased,
-                aaa_data.decreased,
-                aaa_data.change,
-                variant.refsnp_id,
-            ]
-
-            relevant_records = [
-                record
-                for record in records
-                if record.mut_allele == alt
-            ]
-
-            if not relevant_records:
-                to_test_online.append(
-                    [variant.chr_name, variant.chrom_start, variant.refsnp_id, variant.ref, alt or '-']
-                )
-
-            for record in relevant_records:
-
-                if record.ref_allele != variant.ref:
-                    print(
-                        'Reference mismatch for %s!' %
-                        variant.refsnp_id
-                    )
-                    continue
-                if record.location == 'intronic':
-                    print(
-                        'Skipping intronic record for: %s' %
-                        variant.refsnp_id
-                    )
-                    continue
-
-                strand = '1' if record.strand == '+' else '0'
-
-                if variant.chrom_strand != strand:
-                    print(
-                        'Skipping record for: %s - '
-                        'incorrect strand %s in variant vs %s in record' %
-                        (variant.refsnp_id, variant.chrom_strand, strand)
-                    )
-                    continue
-
-                spidex_raw_report.append([variant, alt, aaa_data, record])
-
-                record_data = variant_data
-                record_data += [record.dpsi_max_tissue, record.dpsi_zscore]
-
-                spidex_report.append(record_data)
-
-    step = 40
-    for start in range(0, len(to_test_online), step):
-        query = [
-            to_tsv_row(row)
-            for row in to_test_online[start:start + step]
-        ]
-        query = '\n'.join(query)
-        print('---')
-        print(query)
-
-    def variants_list(aaa_condition):
-        return [
-            {
-                'change': aaa.change,
-                'max_dpsi': float(record.dpsi_max_tissue),
-                'dpsi_zscore': float(record.dpsi_zscore)
-            }
-            for variant, alt, aaa, record in spidex_raw_report
-            if aaa_condition(aaa)
-        ]
-
-    variants_increase = variants_list(lambda aaa: aaa.increased)
-    variants_decrease = variants_list(lambda aaa: aaa.decreased)
-    variants_constant = variants_list(lambda aaa: aaa.change == 0)
-    variants_all = variants_list(lambda aaa: True)
-
-    def draw_plot(plot):
-        plot.draw().waitforbuttonpress()
-        #plot
-
-    from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab, geom_point, geom_line, stat_smooth, geom_boxplot
-    import pandas as pd
-    import numpy as np
-
-    def prepare_data_frame(data_dict, melt=True):
-        df = pd.DataFrame(OrderedDict(
-            (key, pd.Series(value))
-            for key, value in data_dict.iteritems()
-        ))
-        if melt:
-            df = pd.melt(df)
-        return df
-
-    def density_plot(by='dpsi_zscore', categorical=True):
-
-        if categorical:
-            data_dict = {
-                'variants increasing AAA': np.array(
-                    [x[by] for x in variants_increase]
-                ),
-                'variants decreasing AAA': np.array(
-                    [x[by] for x in variants_decrease]
-                ),
-                'variants resulting in AAA of the same length': np.array(
-                    [x[by] for x in variants_constant]
-                )
-            }
-        else:
-            aaa_changes = sorted(set([x['change'] for x in variants_all]))
-            data_dict = OrderedDict(
-                (change, np.array(
-                    [x[by] for x in variants_all if x['change'] == change]
-                ))
-                for change in aaa_changes
-                if len([x[by] for x in variants_all if x['change'] == change]) > 1
-            )
-
-        plot = (
-            ggplot(
-                aes(x='value', colour='variable', fill='variable'),
-                data=prepare_data_frame(data_dict)
-            ) +
-            #ggtitle('Impact of variants affecting poly AAA sequences on %s' % by) +
-            #xlab(by) +
-            #ylab('Kernel density estimate') +
-            geom_density(alpha=0.6)
-        )
-
-        return plot
-
-    p = density_plot()
-    draw_plot(p)
-
-    p = density_plot(by='max_dpsi')
-    draw_plot(p)
-
-    p = density_plot(categorical=False)
-    draw_plot(p)
-
-    by = 'dpsi_zscore'
-    aaa_changes = sorted(set([x['change'] for x in variants_all]))
-
-    """
-    means = [
-        float(np.mean([x[by] for x in variants_all if x['change'] == change]))
-        for change in aaa_changes
-    ]
-
-    data_dict = {
-        'AAA length change': aaa_changes,
-        'Mean z-value': means
-    }
-    """
-
-    data_dict = OrderedDict(
-        (
-            change,
-            np.array([
-                variant_data['dpsi_zscore']
-                for variant_data in variants_all
-                if variant_data['change'] == change
-            ])
-        )
-        for change in aaa_changes
-    )
-
-
-    import seaborn as sns
-    sns.set(color_codes=True)
-
-    p = sns.lmplot(x="variable", y="value", data=prepare_data_frame(data_dict), x_estimator=np.mean)
-    p.fig.show()
-
-    p = sns.lmplot(x="variable", y="value", data=prepare_data_frame(data_dict), x_jitter=.05)
-    p.fig.show()
-
-
-    import matplotlib.pyplot as plt
-
-    #data = [[np.random.rand(100)] for i in range(3)]
-    plt.figure(5)
-    plt.boxplot(data_dict.values(), labels=data_dict.keys())
-    plt.show()
-
-    # TODO use seaborn: https://seaborn.pydata.org/tutorial/regression.html
-    # and http://seaborn.pydata.org/tutorial/categorical.html
-
-    report(
-        'spidex',
-        map(to_tsv_row, spidex_report),
-        ['header = TODO']
-    )
-    report(
-        'spidex_to_test_online',
-        map(to_tsv_row, to_test_online),
-        ['header = TODO']
-    )
 
 
 @reporter
@@ -1073,6 +827,12 @@ def get_all_used_transcript_ids(variants_by_gene):
         })
 
     return transcripts_ids
+
+
+@reporter
+def spidex(*args, **kwargs):
+    from spidex import spidex
+    spidex(*args, **kwargs)
 
 
 @reporter
