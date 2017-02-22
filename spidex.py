@@ -110,6 +110,8 @@ def spidex(variants_by_gene_by_transcript):
                 aaa_data.increased,
                 aaa_data.decreased,
                 aaa_data.change,
+                aaa_data.before,
+                aaa_data.after,
                 variant.refsnp_id,
             ]
 
@@ -165,6 +167,7 @@ def spidex(variants_by_gene_by_transcript):
     def variants_list(aaa_condition):
         return [
             {
+                'new_aaa_length': aaa.after,
                 'change': aaa.change,
                 'max_dpsi': float(record.dpsi_max_tissue),
                 'dpsi_zscore': float(record.dpsi_zscore)
@@ -179,6 +182,7 @@ def spidex(variants_by_gene_by_transcript):
     variants_all = variants_list(lambda aaa: True)
 
     aaa_changes = sorted(set([x['change'] for x in variants_all]))
+    aaa_lengths = sorted(set([x['new_aaa_length'] for x in variants_all]))
 
     def density_plot(by='dpsi_zscore', categorical=True):
 
@@ -269,6 +273,38 @@ def spidex(variants_by_gene_by_transcript):
     g.set_ylabel('PSI z-score')
     draw_plot(g)
 
+    data_dict = OrderedDict(
+        (
+            length,
+            np.array([
+                variant_data['dpsi_zscore']
+                for variant_data in variants_all
+                if variant_data['new_aaa_length'] == length
+            ])
+        )
+        for length in aaa_lengths
+    )
+    df = prepare_data_frame(data_dict)
+
+    p = sns.lmplot(x='variable', y='value', data=df, x_estimator=np.mean)
+    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean')
+    p.ax.set_xlabel('AAA track length resulting from given mutation')
+    p.ax.set_ylabel('PSI z-score')
+    draw_plot(p)
+
+    p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
+    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered')
+    p.ax.set_xlabel('AAA length resulting from given mutation [noised with visual jitter]')
+    p.ax.set_ylabel('PSI z-score')
+    draw_plot(p)
+
+    plt.figure(max(plt.get_fignums()) + 1)
+    g = sns.boxplot(x='variable', y='value', data=df)
+    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score')
+    g.set_xlabel('AAA track length resulting from given mutation')
+    g.set_ylabel('PSI z-score')
+    draw_plot(g)
+
     print('Analysed %s mutations.' % counter)
 
     #from code import interact
@@ -289,6 +325,8 @@ def spidex(variants_by_gene_by_transcript):
             'aaa_increased',
             'aaa_decreased',
             'aaa_change',
+            'aaa_before',
+            'aaa_after',
             'refsnp_id',
             'dpsi_max_tissue',
             'record.dpsi_zscore'
