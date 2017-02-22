@@ -892,6 +892,17 @@ def spidex(variants_by_gene_by_transcript):
         for change in aaa_changes
     )
 
+
+    import seaborn as sns
+    sns.set(color_codes=True)
+
+    p = sns.lmplot(x="variable", y="value", data=prepare_data_frame(data_dict), x_estimator=np.mean)
+    p.fig.show()
+
+    p = sns.lmplot(x="variable", y="value", data=prepare_data_frame(data_dict), x_jitter=.05)
+    p.fig.show()
+
+
     import matplotlib.pyplot as plt
 
     #data = [[np.random.rand(100)] for i in range(3)]

@@ -5,3 +5,4 @@ pyvcf
 pysam
 requests
 tqdm
+seaborn
