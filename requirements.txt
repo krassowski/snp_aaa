@@ -1,5 +1,5 @@
 pytabix
-ggplot
+ggplot==0.6.8
 recordclass
 pyvcf
 pysam
