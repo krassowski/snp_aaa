@@ -112,7 +112,6 @@ class VariantCallFormatParser(object):
 
         return vcf_data
 
-
     def get_by_id(self, reader_name, pos, record_id):
 
         vcf_data = []

@@ -1,7 +1,3 @@
-import os
-import sys
-biomart_fork_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
-sys.path.insert(0, biomart_fork_path)
 from biomart import BiomartDataset
 from data_store import DataStore
 

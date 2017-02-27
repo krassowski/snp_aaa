@@ -1,6 +1,6 @@
 from __future__ import print_function
 from collections import OrderedDict
-from snp_parser import report
+from analyses import report, reporter
 from snp_parser import all_poly_a_variants
 from snp_parser import SPIDEX_LOCATION
 import tabix
@@ -360,6 +360,7 @@ def plot_aaa_vs_spidex(spidex_raw_report):
     #interact(local=dict(globals(), **locals()))
 
 
+@reporter
 def poly_aaa_vs_spidex(variants_by_gene):
     """Analysis of poly A track changing mutations using data from SPIDEX."""
     aaa_variants_list = all_poly_a_variants(variants_by_gene)
@@ -367,6 +368,7 @@ def poly_aaa_vs_spidex(variants_by_gene):
     plot_aaa_vs_spidex(raw_report)
 
 
+@reporter
 def all_variants_vs_spidex(variants_by_gene):
     """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
     all_variants = []

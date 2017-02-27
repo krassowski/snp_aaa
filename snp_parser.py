@@ -2,41 +2,25 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
-from collections import defaultdict
-from collections import OrderedDict
+
 import os
 import sys
-import gc
-import re
+
+biomart_fork_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
+sys.path.insert(0, biomart_fork_path)
+
 import traceback
-import cPickle as pickle
-import signal
-from multiprocessing import Pool
+from collections import defaultdict
+
+from biomart import BiomartServer
 from tqdm import tqdm
 from tqdm import trange
-from fasta_sequence_db import SequenceDB
-from fasta_sequence_db import FastSequenceDB
-from cache import cached
-from output_formatter import OutputFormatter
+
 from biomart_data import BiomartData
 from biomart_data import BiomartDataset
-from biomart import BiomartServer
-from cna_by_transcript import CompleteCNA
-from berkley_hash_set import BerkleyHashSet
-from poly_a import poly_a
+from output_formatter import OutputFormatter
 from variant import Variant
-from variant import PolyAAAData
-from vcf_parser import ParsingError
-from vcf_parser import VariantCallFormatParser
-
-
-REPORTERS = OrderedDict()
-
-
-def reporter(func):
-    REPORTERS[func.__name__] = func
-    return func
-
+from cache import cacheable
 
 o = OutputFormatter()
 
@@ -79,10 +63,6 @@ class VariantsData(BiomartData):
         super(self.__class__, self).__init__(dataset, Variant, filters)
 
 
-def show_pos_with_context(seq, start, end):
-    return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
-
-
 def gene_names_from_patacsdb_csv(limit_to=None):
     """
     Load gene names from given csv file. The default file was exported from
@@ -107,7 +87,8 @@ def gene_names_from_patacsdb_csv(limit_to=None):
     return list(genes)
 
 
-def download_variants_by_genes(dataset, gene_names, step_size=50):
+@cacheable
+def download_variants(dataset, gene_names, step_size=50):
     """Retrieve from Ensembl's biomart all variants that affect given genes.
 
     Variants that occur repeatedly in a given gene (i.e. were annotated for
@@ -115,7 +96,7 @@ def download_variants_by_genes(dataset, gene_names, step_size=50):
     The genes should be specified as the list of gene names.
 
     Returns:
-        dict of lists where variants where grouped by ensembl_gene_stable_id
+        dict of lists where variants are grouped by ensembl_gene_stable_id
 
         lists of variants are guaranteed to contain at least one variant
         each - if there is a key with id of given gene, it has at least one
@@ -178,534 +159,6 @@ def download_variants_by_genes(dataset, gene_names, step_size=50):
     return variants_by_gene
 
 
-def get_hgnc(ensembl_transcript_id):
-
-    hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
-
-    names = hgnc_by_ensembl[ensembl_transcript_id]
-
-    # convert set to a list for indexing support
-    names = [name for name in names]
-
-    if len(names) == 0:
-        raise ValueError('No HGNC for transcript: ' + ensembl_transcript_id)
-    elif len(names) > 1:
-        print('Multiple HGNC identifiers for transcript: ' + ensembl_transcript_id)
-
-    return names[0]
-
-
-class UnknownChromosome(Exception):
-    pass
-
-
-def get_reference_seq(variant, databases, offset):
-
-    reference_seq = {}
-
-    transcript_id = variant.ensembl_transcript_stable_id
-    strand = int(variant.ensembl_transcript_chrom_strand)
-
-    for db in databases:
-
-        if type(db) is dict:
-            src = 'chrom'
-        else:
-            src = db.sequence_type
-
-        try:
-            start = getattr(variant, src + '_start')
-            end = getattr(variant, src + '_end')
-        except IndexError:
-            #  print(
-            #     'Lack of', src, 'coordinates for variant:',
-            #     variant.refsnp_id, 'in context of',
-            #     transcript_id
-            # )
-            continue
-
-        if src == 'chrom':
-            try:
-                chrom = db[variant.chr_name]
-                seq = chrom.fetch(start, end, offset)
-            except KeyError:
-                raise UnknownChromosome(variant.chr_name)
-        else:
-            seq = db.fetch(transcript_id, strand, start, end, offset)
-
-        reference_seq[src] = seq
-
-    return reference_seq
-
-
-def real_seq_len(sequence):
-    return len(sequence.strip('-'))
-
-
-def check_sequence_consistence(reference_seq, ref, alt, offset=20):
-    """Check if CDS and CDNA sequences are consistent with genomic sequence
-
-    (after removal of dashes from both sides).
-    """
-    ref_seq = reference_seq[ref]
-    alt_seq = reference_seq[alt]
-
-    if not alt_seq or ref_seq:
-        return
-
-    seq_len = len(alt_seq)
-    if not alt_seq or not ref_seq:
-        print(
-            'Lack of one of required sequences to '
-            'check consistence: %s or %s' % (ref, alt)
-        )
-        return False
-
-    # remove all '-' signs from the beginning of the sequence
-    alt_seq = alt_seq.lstrip('-')
-    # remember how much was trimmed on the left
-    trim_left = seq_len - len(alt_seq)
-
-    seq_len = len(alt_seq)
-    alt_seq = alt_seq.rstrip('-')
-    trim_right = len(alt_seq) - seq_len
-
-    ref_seq = ref_seq[trim_left:trim_right]
-
-    if alt_seq and ref_seq and alt_seq != ref_seq:
-        print('Sequence "%s" is not consistent with sequence "%s":' % (ref, alt))
-        print(ref + ':')
-        if ref_seq:
-            print(
-                show_pos_with_context(ref_seq, offset, -offset)
-            )
-        print(alt + ':')
-        if alt_seq:
-            print(
-                show_pos_with_context(alt_seq, offset, -offset)
-            )
-        print('')
-
-
-def choose_best_seq(reference_seq):
-
-    # step 0: check if CDS and CDNA sequences are consistent with genomic seq.
-    check_sequence_consistence(reference_seq, 'chrom', 'cds')
-    check_sequence_consistence(reference_seq, 'chrom', 'cdna')
-
-    # It's not a big problem if CDS and CDNA sequences are not identical.
-    # It's expected that the CDNA will be longer but CDS will be
-    # preferred generally.
-    # The problem is if they are completely different!
-    check_sequence_consistence(reference_seq, 'cds', 'cdna')
-
-    if reference_seq['cdna']:
-        chosen = 'cdna'
-    elif reference_seq['cds']:
-        chosen = 'cds'
-    elif reference_seq['chrom']:
-        chosen = 'chrom'
-    else:
-        return False
-
-    return reference_seq[chosen]
-
-
-def decode_phen_code(code):
-    """
-    Comply to HGVS recommendations: http://www.hgvs.org/mutnomen/recs.html
-
-    tests = [
-        'FANCD1:c.658_659delGT',
-        'FANCD1:c.5682C>G',
-        'FANCD1:c.6275_6276delTT',
-        'FANCD1:c.8504C>A',
-        'FANCD1:c.5609_5610delTCinsAG',
-        'FANCD1:c.1813dupA',
-        'FANCD1:c.8219T>A',
-        'FANCD1:c.9672dupA'
-    ]
-    """
-    # TODO testy
-    ref, alt = '', ''
-    gene, location = code.split(':')
-    pos_type = location[0]
-
-    match = re.match(
-        '([\d]+)(_[\d]+)?([ACTG]+)?(dup|>|del|ins)([ACTG]+)(dup|>|del|ins)?([ACTG]+)?',
-        code
-    )
-
-    # genomic and mitochondrial positions can be validated easily
-    if pos_type in ('g', 'm'):
-        pos = match.group(1)
-    elif pos_type in ('c', 'n', 'p'):
-        pos = None
-    else:
-        raise ParsingError(
-            'Wrong type of variant position specification: %s' % pos_type
-        )
-
-    event = match.group(4)
-    second_event = match.group(6)
-
-    if second_event:
-        if event == 'del' and second_event == 'ins':
-            ref = match.group(5)
-            alt = match.group(7)
-        else:
-            raise ParsingError(
-                'Unknown complicated event: %s and then %s' % (
-                    event,
-                    second_event
-                )
-            )
-    else:
-        if event == '>':
-            ref = match.group(3)
-            alt = match.group(5)
-        elif event in ('dup', 'ins'):
-            alt = match.group(5)
-        elif event == 'del':
-            ref = match.group(5)
-
-    return gene, pos, ref, alt
-
-
-def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
-    variant.correct = True  # at least now
-
-    variant.chrom_start = int(variant.chrom_start)
-    variant.chrom_end = int(variant.chrom_end)
-
-    #print('Checking out variant: %s from %s at %s' % (variant.refsnp_id, variant.refsnp_source, pos))
-
-    try:
-        reference_sequences = get_reference_seq(
-            variant,
-            (cdna_db, cds_db, dna_db),
-            offset
-        )
-    except UnknownChromosome as e:
-        print('Unknown chromosome: ', e.message)
-        variant.correct = False
-        return
-
-    variant.sequence = choose_best_seq(reference_sequences)
-
-    if not variant.sequence:
-        variant.correct = False
-        print('Skipping: No sequence for ', variant.refsnp_id, 'variant.')
-
-    seq_ref = variant.sequence[offset:-offset]
-    #print('Context: ' + show_pos_with_context(seq, offset, -offset))
-
-    if variant.refsnp_source == 'PhenCode':
-        alt_source = 'PhenCode'
-        gene, pos, ref, alt = decode_phen_code(variant.refsnp_id)
-        alts = [alt]
-    else:
-        alt_source = 'VCF'
-
-        try:
-            vcf_data = vcf_parser.get_by_variant(variant)
-            if len(vcf_data) > 1:
-                print(
-                    'VCF data containts more than one record matching %s'
-                    'variant: %s ' % (variant.refsnp_id, vcf_data)
-                )
-            analysed_vcf_record = vcf_data[0]
-            pos, ref, alts = vcf_parser.parse(analysed_vcf_record)
-            gene = vcf_parser.get_gene(analysed_vcf_record)
-        except ParsingError as e:
-            print(
-                'Skipping variant: %s from %s:' % (
-                    variant.refsnp_id,
-                    variant.refsnp_source
-                ),
-                end=' '
-            )
-            print(e.message)
-            variant.correct = False
-            return False
-
-    variant.alts = alts
-    variant.ref = seq_ref
-
-    # HGNC Gene:
-    # this causes a problem with CNV mappings
-    # should I use that at all?
-    if gene:
-        variant.gene = gene
-    else:
-        print('Neither GENEINFO nor GENE are available for', variant.refsnp_id)
-        variant.correct = False
-        return
-
-    # check ref sequence
-    if ref != seq_ref:
-        print(
-            '%s says ref is %s, but sequence analysis pointed to %s for %s'
-            % (alt_source, ref, seq_ref, variant.refsnp_id)
-        )
-
-    # check pos
-    if variant.chrom_start != pos:
-        print(
-            'Positions are not matching between %s file and biomart for %s '
-            'with ref: %s and alt: %s where positions are: biomart: %s vcf: %s'
-            % (
-                alt_source, variant.refsnp_id, ref, alts,
-                variant.chrom_start, pos
-            )
-        )
-
-    analyze_poly_a(variant, offset)
-
-    return True
-
-
-def analyze_poly_a(variant, offset):
-
-    ref_seq = variant.sequence
-
-    #print(variant.refsnp_id)
-    #print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
-    #print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
-
-    has_aaa, before_len = poly_a(
-        ref_seq,
-        offset,
-        len(ref_seq) - offset
-    )
-
-    variant.poly_aaa = defaultdict(PolyAAAData)
-
-    for alt in variant.alts:
-
-        mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[-offset:]
-
-        will_have, after_len = poly_a(
-            mutated_seq,
-            offset,
-            len(mutated_seq) - offset
-        )
-
-        variant.poly_aaa[alt].has = has_aaa
-        variant.poly_aaa[alt].will_have = will_have
-        variant.poly_aaa[alt].before = before_len
-        variant.poly_aaa[alt].after = after_len
-
-
-def parse_gene_variants(item):
-    gene, variants = item
-
-    # Just to be certain
-    variants_unique_ids = set(variant.refsnp_id for variant in variants)
-    if len(variants_unique_ids) != len(variants):
-        raise Exception('Less unique ids than variants!')
-
-    print('Analysing:', len(variants), 'from', gene)
-
-    vcf_parser = VariantCallFormatParser(
-        vcf_locations,
-        default_source='ensembl'
-    )
-
-    constructors = [cacheable_dna_db, cacheable_cds_db, cacheable_cdna_db]
-
-    databases = [
-        db()
-        for db in constructors
-    ]
-
-    def analyze_variant_here(variant):
-
-        try:
-            analyze_variant(
-                variant,
-                vcf_parser,
-                *databases
-            )
-        except Exception:
-            traceback.print_exc()
-            variant.correct = False
-
-        #del databases
-
-        return variant
-
-    variants = map(analyze_variant_here, variants)
-    correct_variants = filter(lambda variant: variant.correct, variants)
-
-    print('Analysed', gene)
-
-    sys.stdout.flush()
-
-    gc.collect()
-
-    return gene, correct_variants
-
-
-def init_worker():
-    """Initialization with this function allows to terminate app
-
-    with Ctrl+C even when multiprocessing computation is ongoing.
-    """
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
-
-
-def parse_variants_by_gene(variants_by_gene):
-    """Parses variants"""
-    variants_count = sum(
-        len(variants) for variants in
-        variants_by_gene.values()
-    )
-
-    print('Parsing %s variants' % variants_count)
-
-    parsed_variants_by_gene = defaultdict(list)
-    merged_duplicates = 0
-    rejected_count = 0
-
-    # parsing variants start
-    parsing_pool = Pool(12, init_worker, maxtasksperchild=1)
-
-    for gene, variants in tqdm(parsing_pool.imap_unordered(
-            parse_gene_variants,
-            variants_by_gene.items()
-    ), total=len(variants_by_gene)):
-
-        variants_before_parsing = len(variants_by_gene[gene])
-        non_unique_parsed = len(variants)
-
-        variants = get_unique_variants(variants)
-        unique_parsed = len(variants)
-
-        parsed_variants_by_gene[gene].extend(variants)
-
-        merged_duplicates += non_unique_parsed - unique_parsed
-        rejected_count += variants_before_parsing - non_unique_parsed
-
-    parsing_pool.close()
-    # parsing end
-
-    parsed_variants_count = sum(
-        len(variants) for variants in
-        parsed_variants_by_gene.values()
-    )
-
-    print(
-        '%s variants remained after parsing - quantity was reduced by:\n'
-        '1. Merging %s non-unique variants (i.e. identical variants '
-        'annotated for different transcripts; you can still find those '
-        'transcripts in \'affected_transcripts\' property)\n'
-        '2. Rejection of %s variants' %
-        (parsed_variants_count, merged_duplicates, rejected_count)
-    )
-
-    return parsed_variants_by_gene
-
-
-def get_cosmic_genes_to_load(variants_by_gene):
-    cosmic_gene_names = set()
-
-    for gene, variants in variants_by_gene.items():
-        cosmic_gene_names.update(
-            [
-                variant.gene
-                for variant in variants
-            ]
-        )
-    return cosmic_gene_names
-
-
-def group_variants_for_cosmic(variants_by_gene):
-    # COSMIC specific
-    variants_by_gene_by_transcript = {}
-    for gene, variants in variants_by_gene.items():
-        by_transcript = defaultdict(list)
-
-        for variant in variants:
-            # The problem with the ensembl's biomart is that it returns records
-            # from cosmic without information about the transcript, so we have
-            # often a few identical records with only the refsnp_id different,
-            # as for example: COSM3391893, COSM3391894
-            # Fortunately the transcript id is encoded inside vcf_data retrieved
-            # from biomart inside the gene identifier (if it is absent, then we
-            # have a canonical transcript, at least it is the best guess), eg.:
-            # ANKRD26_ENST00000376070 | ANKRD26_ENST00000436985 | ANKRD26
-            gene_transcript_id = variant.gene
-            transcript_id = gene_transcript_id
-
-            by_transcript[transcript_id].append(variant)
-
-        variants_by_gene_by_transcript[gene] = by_transcript
-    return variants_by_gene_by_transcript
-
-
-def report(name, data, column_names=()):
-    """Generates list-based report quickly.
-
-    File will be placed in 'reports' dir and name will be derived
-    from 'name' of the report. The data should be an iterable
-    collection of strings. Empty reports will not be created.
-    """
-    directory = 'reports'
-
-    if not data:
-        if VERBOSITY_LEVEL:
-            print('Nothing to report for %s' % name)
-        return
-
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
-    filename = name.replace(' ', '_') + '.txt'
-    path = os.path.join(directory, filename)
-
-    with open(path, 'w') as f:
-        if column_names:
-            f.write('\t'.join(column_names) + '\n')
-        f.write('\n'.join(data))
-
-    print('Created report "%s" with %s entries' % (name, len(data)))
-
-
-def get_unique_variants(variants):
-    """Get only unique variants, with respect to:
-        - position in genome,
-        - set of alternative alleles
-        - ensembl gene id
-
-    All transcript affected by variants sharing listed properties
-    will expand "affected_transcripts" set of returned variant.
-    """
-    unique_variants = {}
-
-    for variant in variants:
-        transcript = variant.ensembl_transcript_stable_id
-
-        key = '\t'.join(map(
-            str,
-            [
-                variant.chr_name,
-                variant.chrom_start,
-                variant.chrom_end,
-                variant.ref,
-                ','.join([str(n) for n in sorted(set(variant.alts))]),
-                variant.ensembl_gene_stable_id
-            ]
-        ))
-
-        if key not in unique_variants.keys():
-            unique_variants[key] = variant
-
-        unique_variants[key].affected_transcripts.add(transcript)
-
-    return unique_variants.values()
-
-
 def select_poly_a_related_variants(variants):
     """Return list oof variants occurring in a poly(A) track and variants which will create poly(A) track."""
     return [
@@ -729,311 +182,11 @@ def all_poly_a_variants(variants_by_gene):
             yield variant
 
 
-@reporter
-def summarize_poly_aaa_variants(variants_by_gene):
-
-    variant_aaa_report = []
-
-    for variant in all_poly_a_variants(variants_by_gene):
-
-        variant_aaa_report += [
-            '\t'.join(map(str, [
-                variant.refsnp_id,
-                variant.ensembl_gene_stable_id,
-                data.increased,
-                data.decreased,
-                data.change,
-                alt
-            ]))
-            for alt, data in variant.poly_aaa.items()
-        ]
-
-    report(
-        'poly aaa increase and decrease by variants',
-        variant_aaa_report,
-        [
-            'snp_id', 'gene', 'poly_aaa_increase',
-            'poly_aaa_decrease', 'poly_aaa_change', 'alt'
-        ]
-    )
-
-
-@reporter
-def gtex_over_api(variants_by_gene):
-    import requests
-
-    for variant in all_poly_a_variants(variants_by_gene):
-
-        server = 'http://rest.ensembl.org'
-        ext = '/eqtl/variant_name/homo_sapiens/%s?statistic=p-value;content-type=application/json' % variant.refsnp_id
-
-        try:
-            r = requests.get(
-                server + ext,
-                headers={
-                    'content-type': 'application/json'
-                }
-            )
-
-            if not r.ok:
-                r.raise_for_status()
-                sys.exit()
-
-            decoded = r.json()
-
-            if not decoded['error']:
-                print('Found sth!')
-                print(repr(decoded))
-
-        except Exception:
-            pass
-
-
-@reporter
-def summarize_copy_number_expression(variants_by_gene):
-
-    cosmic_genes_to_load = get_cosmic_genes_to_load(variants_by_gene)
-    variants_by_gene_by_transcript = group_variants_for_cosmic(variants_by_gene)
-
-    # TODO: expire cache on args.parse_variants, else always load.
-    @cached(action='load')
-    def cacheable_cna():
-        return CompleteCNA(
-            'cosmic/v' + COSMIC_VERSION + '/CosmicCompleteCNA.tsv',
-            restrict_to=cosmic_genes_to_load
-        )
-
-    cna = cacheable_cna()
-
-    variants_count = 0
-    poly_a_related_variants_count = 0
-
-    cnv_aaa_report = []
-    import operator
-
-    no_expression = set()
-
-    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
-
-        expression = [0, 0, 0]
-        for gene_transcript_id in variants_by_transcript.keys():
-
-            try:
-                expr = cna.get_by_gene_and_transcript(gene_transcript_id)
-                expression = map(operator.add, expression, expr)
-            except KeyError:
-                # no expression data for this transcript
-                no_expression.add(gene_transcript_id)
-                continue
-
-        variants = []
-
-        for transcript_variants in variants_by_transcript.values():
-            variants.extend(transcript_variants)
-
-        """
-        # for this analysis consider only variants from cosmic
-        variants = [
-            variant
-            for variant in variants
-            if variant.refsnp_source == 'COSMIC'
-        ]
-        """
-
-        variants_count += len(variants)
-
-        print(gene, 'with its', len(variants), 'variants analysed')
-
-        # loss of poly_aaa, decrease in length (-1 per residue)
-        decrease = 0
-        # gain of poly_aaa: , increase in length (+1 per residue)
-        increase = 0
-
-        poly_a_related_variants = select_poly_a_related_variants(variants)
-        poly_a_related_variants_count += len(poly_a_related_variants)
-
-        # give scores for length increase
-        for variant in poly_a_related_variants:
-            if variant.poly_aaa.increased:
-                increase += 1
-            elif variant.poly_aaa.decreased:
-                decrease += 1
-
-        cnv_aaa_report += [
-            (gene, expression[0], expression[2], increase, decrease)
-        ]
-
-    report('no expression data for some transcripts', no_expression)
-
-    gene_count = len(variants_by_gene_by_transcript)
-
-    print('analyzed genes:', gene_count)
-    print('analyzed variants:', variants_count)
-    print('poly_a related variants', poly_a_related_variants_count)
-
-    report(
-        'poly a and expression table',
-        ['\t'.join(map(str, line)) for line in cnv_aaa_report],
-        ['gene', 'cnv+', 'cnv-', 'aaa+', 'aaa-']
-    )
-
-
-def get_all_used_transcript_ids(variants_by_gene):
-    """Return all transcript identifiers that occur in the passed variants.
-
-    variants_by_gene is expected to by a dict of variant lists grouped by genes.
-    """
-    transcripts_ids = set()
-
-    for variants in variants_by_gene.itervalues():
-        transcripts_ids.update({
-            variant.ensembl_transcript_stable_id
-            for variant in variants
-        })
-
-    return transcripts_ids
-
-
-@reporter
-def spidex(*args, **kwargs):
-    from spidex import poly_aaa_vs_spidex
-    poly_aaa_vs_spidex(*args, **kwargs)
-
-
-@reporter
-def spidex_all(*args, **kwargs):
-    from spidex import all_variants_vs_spidex
-    all_variants_vs_spidex(*args, **kwargs)
-
-
-@reporter
-def poly_aaa_vs_expression(variants_by_gene, include_all=False):
-
-    from expression_database import ExpressionDatabase
-
-    bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation_full.db')
-
-    def is_length_difference_big(l1, l2):
-        """Is the first list much longer than the second?"""
-        len1 = len(l1)
-        len2 = len(l2)
-        assert len1 > len2
-
-        if len2 == 0 or len1 / len2 > 10:
-            return True
-
-    gtex_report = []
-    gtex_report_by_genes = []
-
-    for gene, variants in variants_by_gene.iteritems():
-
-        poly_a_related_variants = select_poly_a_related_variants(variants)
-
-        print(
-            'Analysing %s poly_a related variants (total: %s) from %s gene.'
-            % (len(poly_a_related_variants), len(variants), gene)
-        )
-
-        for variant in poly_a_related_variants:
-
-            variant.expression = {}
-            expression_data_by_alt = bdb.get_by_mutation(variant)
-
-            for alt, expression_data in expression_data_by_alt.items():
-
-                if not expression_data:
-                    print('No expression for', variant.refsnp_id)
-                    if not include_all:
-                        continue
-                else:
-                    print('Expression data for', variant.refsnp_id, 'found:', expression_data)
-
-                expression_up = []
-                expression_down = []
-
-                for tissue, slope in expression_data:
-                    if slope > 0:
-                        expression_up += [tissue]
-                    elif slope < 0:
-                        expression_down += [tissue]
-
-                # is this rather up?
-                if len(expression_up) > len(expression_down):
-                    # is this certainly up?
-                    if is_length_difference_big(expression_up, expression_down):
-                        expression_trend = 'up'
-                    else:
-                        expression_trend = 'rather_up'
-                # is this rather down?
-                elif len(expression_down) > len(expression_up):
-                    # is this certainly down?
-                    if is_length_difference_big(expression_down, expression_up):
-                        expression_trend = 'down'
-                    else:
-                        expression_trend = 'rather_down'
-                # is unchanged?
-                else:
-                    expression_trend = 'constant'
-
-                expression_up_in_x_cases = len(expression_up)
-                expression_down_in_x_cases = len(expression_down)
-
-                data = variant.poly_aaa[alt]
-                variant.expression[alt] = expression_trend
-
-                gtex_report += [(
-                    variant.refsnp_id,
-                    expression_up_in_x_cases,
-                    expression_down_in_x_cases,
-                    expression_trend,
-                    data.increased,
-                    data.decreased,
-                    data.change,
-                    alt
-                )]
-
-        gtex_report_by_genes += [(
-            gene,
-            sum('up' in v.expression.values() for v in poly_a_related_variants),
-            sum('down' in v.expression.values() for v in poly_a_related_variants),
-            sum(
-                sum('up' == expr for expr in v.expression.values())
-                for v in poly_a_related_variants
-            ),
-            sum(
-                sum('down' == expr for expr in v.expression.values())
-                for v in poly_a_related_variants
-            ),
-            sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.values()),
-            sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.values())
-        )]
-
-    report(
-        'Expression table for variants (based on data from GTEx)',
-        ['\t'.join(map(str, line)) for line in gtex_report],
-        [
-            'variant', 'expression+', 'expression-', 'trend',
-            'aaa+', 'aaa-', 'aaa change'
-        ]
-    )
-
-    report(
-        'Expression table for genes (based on data from GTEx)',
-        ['\t'.join(map(str, line)) for line in gtex_report_by_genes],
-        # note: alleles is not the same as variants
-        [
-            'gene', 'alleles with expression+', 'alleles with expression-',
-            'variants with expression+', 'variants with expression-', '#aaa+', '#aaa-'
-        ]
-    )
-
-    print('Done')
-
-
 def perform_analyses(args):
     """The main workflow happens here."""
 
-    variants_by_gene = variants_by_gene_parsed()
+    variants_by_gene = variants_by_gene_parsed.load()
+    from analyses import REPORTERS
 
     for reporter_name in args.report:
         current_reporter = REPORTERS[reporter_name]
@@ -1047,6 +200,7 @@ def perform_analyses(args):
 
 def create_arg_parser():
     import argparse
+    from analyses import REPORTERS
 
     to_show = [
         'databases', 'datasets', 'filters', 'attributes',
@@ -1084,8 +238,8 @@ def create_arg_parser():
         type=str,
         default=gene_names_from_patacsdb_csv(),
         help=(
-            'list ofhuman genes from which variants should be extracted for use in '
-            'avaialable analyses. By default all human genes from PATACSDB '
+            'list of human genes from which variants should be extracted for use in '
+            'available analyses. By default all human genes from PATACSDB '
             'will be used.'
         )
     )
@@ -1162,7 +316,7 @@ def show_some_variant(dataset):
 
     for gene in genes_from_patacsdb:
 
-        variants_by_gene = download_variants_by_genes(
+        variants_by_gene = download_variants(
             dataset,
             [gene]
         )
@@ -1192,12 +346,73 @@ def reload_gtex():
     )
 
 
-if __name__ == '__main__':
+from fasta_sequence_db import SequenceDB, FastSequenceDB
 
-    args = parse_args(sys.argv)
 
-    o.force = args.verbose
-    VERBOSITY_LEVEL = args.verbose
+@cacheable
+def variants_by_gene_parsed(raw_variants_by_gene):
+    from parse_variants import parse_variants_by_gene
+
+    return parse_variants_by_gene(raw_variants_by_gene)
+
+
+@cacheable
+def get_all_used_transcript_ids(variants_by_gene):
+    """Return all transcript identifiers that occur in the passed variants.
+
+    variants_by_gene is expected to by a dict of variant lists grouped by genes.
+    """
+    transcripts_ids = set()
+
+    for variants in variants_by_gene.itervalues():
+        transcripts_ids.update(
+            {
+                variant.ensembl_transcript_stable_id
+                for variant in variants
+                }
+        )
+
+    return transcripts_ids
+
+
+@cacheable
+def create_cds_db(transcripts_to_load):
+    return SequenceDB(
+        version=ENSEMBL_VERSION,
+        assembly=GRCH_VERSION,
+        index_by='transcript',
+        sequence_type='cds',
+        restrict_to=transcripts_to_load
+    )
+
+
+@cacheable
+def create_cdna_db(transcripts_to_load):
+    return SequenceDB(
+        version=ENSEMBL_VERSION,
+        assembly=GRCH_VERSION,
+        index_by='transcript',
+        sequence_type='cdna',
+        restrict_to=transcripts_to_load
+    )
+
+
+@cacheable
+def create_dna_db():
+    chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
+    dna_db = {}
+
+    for chromosome in chromosomes:
+        dna_db[chromosome] = FastSequenceDB(
+            version=ENSEMBL_VERSION,
+            assembly=GRCH_VERSION,
+            sequence_type='dna',
+            id_type='chromosome.' + chromosome
+        )
+    return dna_db
+
+
+def main(args):
 
     snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
     biomart_server = BiomartServer(args.biomart)
@@ -1221,78 +436,23 @@ if __name__ == '__main__':
 
     if args.report or args.parse_variants or args.download_variants:
 
-        if args.download_variants:
-            cache = 'save'
-        else:
-            cache = 'load'
-
         genes_list = args.genes_list
 
-        @cached(action=cache)
-        def cacheable_raw_variants_by_gene():
-            variants_by_gene = download_variants_by_genes(
-                snp_dataset,
-                genes_list,
-                step_size=args.step_size
-            )
-            return variants_by_gene
+        # 1. Download
+        if args.download_variants:
+            raw_variants_by_gene = download_variants.save(snp_dataset, genes_list, step_size=args.step_size)
+            # transcripts have changed, some databases need reload
+            transcripts_to_load = get_all_used_transcript_ids.save(raw_variants_by_gene)
+            create_cds_db.save(transcripts_to_load)
+            create_cdna_db.save(transcripts_to_load)
+        else:
+            raw_variants_by_gene = download_variants.load()
 
-        raw_variants_by_gene = cacheable_raw_variants_by_gene()
+        # 2. Parse
+        if args.parse_variants:
+            variants_by_gene_parsed.save(raw_variants_by_gene)
 
-        @cached(action=cache)
-        def cacheable_transcripts_to_load():
-            return get_all_used_transcript_ids(raw_variants_by_gene)
-
-        transcripts_to_load = cacheable_transcripts_to_load()
-
-        @cached(action=cache)
-        def cacheable_cds_db():
-            return SequenceDB(
-                version=ENSEMBL_VERSION,
-                assembly=GRCH_VERSION,
-                index_by='transcript',
-                sequence_type='cds',
-                restrict_to=transcripts_to_load
-            )
-
-        @cached(action=cache)
-        def cacheable_cdna_db():
-            return SequenceDB(
-                version=ENSEMBL_VERSION,
-                assembly=GRCH_VERSION,
-                index_by='transcript',
-                sequence_type='cdna',
-                restrict_to=transcripts_to_load
-            )
-
-
-        @cached(action=cache)
-        def cacheable_dna_db():
-            chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
-            dna_db = {}
-
-            for chromosome in chromosomes:
-                dna_db[chromosome] = FastSequenceDB(
-                    version=ENSEMBL_VERSION,
-                    assembly=GRCH_VERSION,
-                    sequence_type='dna',
-                    id_type='chromosome.' + chromosome
-                )
-            return dna_db
-
-        constructors = [cacheable_dna_db, cacheable_cds_db, cacheable_cdna_db]
-
-        for db in constructors:
-            db()
-
-        @cached(action='save' if args.parse_variants else 'load')
-        def variants_by_gene_parsed():
-            return parse_variants_by_gene(raw_variants_by_gene)
-
-        print(
-            'Variants data %s.' %
-            ('saved' if cache == 'save' else 'loaded')
-        )
+        print('Variants data ready')
 
     if args.report:
 
@@ -1304,3 +464,11 @@ if __name__ == '__main__':
     else:
         print('No task specified.')
 
+
+if __name__ == '__main__':
+
+    parsed_args = parse_args(sys.argv)
+    o.force = parsed_args.verbose
+    VERBOSITY_LEVEL = parsed_args.verbose
+
+    main(parsed_args)
