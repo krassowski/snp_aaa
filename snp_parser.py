@@ -83,21 +83,21 @@ def show_pos_with_context(seq, start, end):
     return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
 
 
-def gene_names_from_patacsdb_csv(how_many=None):
+def gene_names_from_patacsdb_csv(limit_to=None):
     """
     Load gene names from given csv file. The default file was exported from
     sysbio.ibb.waw.pl/patacsdb database, from homo sapiens dataset.
 
     The gene names are expected to be located at second column in each row.
     The count of gene names to read can be constrained with use of an optional
-    `how_many` argument (default None denotes that all gene names
+    `limit_to` argument (default None denotes that all gene names
     from the file should be returned)
     """
     genes = set()
     count = 0
     with open('patacsdb_all.csv', 'r') as f:
         for line in f:
-            if how_many and count >= how_many:
+            if limit_to and count >= limit_to:
                 break
             count += 1
             if line:
@@ -107,12 +107,19 @@ def gene_names_from_patacsdb_csv(how_many=None):
     return list(genes)
 
 
-def get_variants_by_genes(dataset, gene_names, step_size=50):
+def download_variants_by_genes(dataset, gene_names, step_size=50):
     """Retrieve from Ensembl's biomart all variants that affect given genes.
 
     Variants that occur repeatedly in a given gene (i.e. were annotated for
     multiple transcripts) will be reported only once.
     The genes should be specified as the list of gene names.
+
+    Returns:
+        dict of lists where variants where grouped by ensembl_gene_stable_id
+
+        lists of variants are guaranteed to contain at least one variant
+        each - if there is a key with id of given gene, it has at least one
+        variant in list, fetched from Ensembl Biomart.
     """
 
     variants_by_gene = defaultdict(list)
@@ -143,6 +150,7 @@ def get_variants_by_genes(dataset, gene_names, step_size=50):
 
             if variants_with_the_same_id:
                 for known_variant in variants_with_the_same_id:
+                    # TODO NOW!
                     allowed = (
                         # ensembl_transcript_stable_id can differ among two
                         # almost-identical variants
@@ -151,6 +159,11 @@ def get_variants_by_genes(dataset, gene_names, step_size=50):
                     )
                     # TODO: check that all other attributes are equal
                     assert allowed
+
+                variant.affected_transcripts.update([
+                    known_variant.ensembl_transcript_stable_id
+                    for known_variant in variants_with_the_same_id
+                ])
             else:
                 variants_by_gene[gene].append(variant)
 
@@ -162,7 +175,7 @@ def get_variants_by_genes(dataset, gene_names, step_size=50):
         print('Parsed', variants_in_gene, 'variants.')
 
     print('Downloaded %s variants' % variants_count)
-    return variants_by_gene, variants_count
+    return variants_by_gene
 
 
 def get_hgnc(ensembl_transcript_id):
@@ -194,7 +207,7 @@ def get_reference_seq(variant, databases, offset):
     strand = int(variant.ensembl_transcript_chrom_strand)
 
     for db in databases:
-        seq = ''
+
         if type(db) is dict:
             src = 'chrom'
         else:
@@ -283,7 +296,7 @@ def choose_best_seq(reference_seq):
     # It's not a big problem if CDS and CDNA sequences are not identical.
     # It's expected that the CDNA will be longer but CDS will be
     # preferred generally.
-    # The problem is if they are completelly different!
+    # The problem is if they are completely different!
     check_sequence_consistence(reference_seq, 'cds', 'cdna')
 
     if reference_seq['cdna']:
@@ -542,18 +555,20 @@ def init_worker():
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
-def parse_variants(variants_by_gene):
-    """
-    vcf.parser uses 0-based coordinates:
-    http://pyvcf.readthedocs.org/en/latest/_modules/vcf/parser.html?highlight=coordinates
-    ensembl uses 1-based coordinates:
-    http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
-    """
-    print('Parsing variants:')
+def parse_variants_by_gene(variants_by_gene):
+    """Parses variants"""
+    variants_count = sum(
+        len(variants) for variants in
+        variants_by_gene.values()
+    )
 
-    variants_by_gene_by_transcript = {}
-    cosmic_genes_to_load = set()
+    print('Parsing %s variants' % variants_count)
 
+    parsed_variants_by_gene = defaultdict(list)
+    merged_duplicates = 0
+    rejected_count = 0
+
+    # parsing variants start
     parsing_pool = Pool(12, init_worker, maxtasksperchild=1)
 
     for gene, variants in tqdm(parsing_pool.imap_unordered(
@@ -561,13 +576,54 @@ def parse_variants(variants_by_gene):
             variants_by_gene.items()
     ), total=len(variants_by_gene)):
 
-        cosmic_genes_to_load.update(
+        variants_before_parsing = len(variants_by_gene[gene])
+        non_unique_parsed = len(variants)
+
+        variants = get_unique_variants(variants)
+        unique_parsed = len(variants)
+
+        parsed_variants_by_gene[gene].extend(variants)
+
+        merged_duplicates += non_unique_parsed - unique_parsed
+        rejected_count += variants_before_parsing - non_unique_parsed
+
+    parsing_pool.close()
+    # parsing end
+
+    parsed_variants_count = sum(
+        len(variants) for variants in
+        parsed_variants_by_gene.values()
+    )
+
+    print(
+        '%s variants remained after parsing - quantity was reduced by:\n'
+        '1. Merging %s non-unique variants (i.e. identical variants '
+        'annotated for different transcripts; you can still find those '
+        'transcripts in \'affected_transcripts\' property)\n'
+        '2. Rejection of %s variants' %
+        (parsed_variants_count, merged_duplicates, rejected_count)
+    )
+
+    return parsed_variants_by_gene
+
+
+def get_cosmic_genes_to_load(variants_by_gene):
+    cosmic_gene_names = set()
+
+    for gene, variants in variants_by_gene.items():
+        cosmic_gene_names.update(
             [
                 variant.gene
                 for variant in variants
             ]
         )
+    return cosmic_gene_names
 
+
+def group_variants_for_cosmic(variants_by_gene):
+    # COSMIC specific
+    variants_by_gene_by_transcript = {}
+    for gene, variants in variants_by_gene.items():
         by_transcript = defaultdict(list)
 
         for variant in variants:
@@ -585,16 +641,7 @@ def parse_variants(variants_by_gene):
             by_transcript[transcript_id].append(variant)
 
         variants_by_gene_by_transcript[gene] = by_transcript
-
-    parsing_pool.close()
-
-    all_variants_count = sum(
-        len(variants) for variants in
-        variants_by_gene.values()
-    )
-    print('All variants', all_variants_count)
-
-    return variants_by_gene_by_transcript, cosmic_genes_to_load
+    return variants_by_gene_by_transcript
 
 
 def report(name, data, column_names=()):
@@ -625,38 +672,42 @@ def report(name, data, column_names=()):
     print('Created report "%s" with %s entries' % (name, len(data)))
 
 
-def get_all_variants(variants_by_transcript, gene, report_duplicated=True):
+def get_unique_variants(variants):
+    """Get only unique variants, with respect to:
+        - position in genome,
+        - set of alternative alleles
+        - ensembl gene id
 
+    All transcript affected by variants sharing listed properties
+    will expand "affected_transcripts" set of returned variant.
+    """
     unique_variants = {}
-    duplicated = set()
 
-    for gene_transcript_id, variants in variants_by_transcript.iteritems():
-        for variant in variants:
-            key = '\t'.join([
+    for variant in variants:
+        transcript = variant.ensembl_transcript_stable_id
+
+        key = '\t'.join(map(
+            str,
+            [
                 variant.chr_name,
-                str(variant.chrom_start),
-                str(variant.chrom_end),
-                str(variant.ref),
-                ','.join([str(n) for n in variant.alts]),
-                variant.ensembl_gene_stable_id,
-                gene_transcript_id
-            ])
-            if key not in unique_variants.keys():
-                variant.affected_transcripts = {gene_transcript_id}
-                unique_variants[key] = variant
-            else:
-                unique_variants[key].affected_transcripts.add(gene_transcript_id)
-                stored_variant = unique_variants[key]
-                duplicated.update([variant.refsnp_id], [stored_variant.refsnp_id])
+                variant.chrom_start,
+                variant.chrom_end,
+                variant.ref,
+                ','.join([str(n) for n in sorted(set(variant.alts))]),
+                variant.ensembl_gene_stable_id
+            ]
+        ))
 
-    if report_duplicated:
-        report('Duplicated records for gene: ' + gene, duplicated)
+        if key not in unique_variants.keys():
+            unique_variants[key] = variant
+
+        unique_variants[key].affected_transcripts.add(transcript)
 
     return unique_variants.values()
 
 
 def select_poly_a_related_variants(variants):
-
+    """Return list oof variants occurring in a poly(A) track and variants which will create poly(A) track."""
     return [
         variant
         for variant in variants
@@ -667,12 +718,11 @@ def select_poly_a_related_variants(variants):
     ]
 
 
-def all_poly_a_variants(variants_by_gene_by_transcript):
-    total = len(variants_by_gene_by_transcript)
-    for gene, variants_by_transcript in tqdm(variants_by_gene_by_transcript.iteritems(), total=total):
+def all_poly_a_variants(variants_by_gene):
+    total = len(variants_by_gene)
 
-        # treat all variants the same way - just remove duplicates
-        variants = get_all_variants(variants_by_transcript, gene)
+    for gene, variants in tqdm(variants_by_gene.iteritems(), total=total):
+
         poly_a_related_variants = select_poly_a_related_variants(variants)
 
         for variant in poly_a_related_variants:
@@ -680,11 +730,11 @@ def all_poly_a_variants(variants_by_gene_by_transcript):
 
 
 @reporter
-def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
+def summarize_poly_aaa_variants(variants_by_gene):
 
     variant_aaa_report = []
 
-    for variant in all_poly_a_variants(variants_by_gene_by_transcript):
+    for variant in all_poly_a_variants(variants_by_gene):
 
         variant_aaa_report += [
             '\t'.join(map(str, [
@@ -709,10 +759,10 @@ def summarize_poly_aaa_variants(variants_by_gene_by_transcript):
 
 
 @reporter
-def gtex_over_api(variants_by_gene_by_transcript):
+def gtex_over_api(variants_by_gene):
     import requests
 
-    for variant in all_poly_a_variants(variants_by_gene_by_transcript):
+    for variant in all_poly_a_variants(variants_by_gene):
 
         server = 'http://rest.ensembl.org'
         ext = '/eqtl/variant_name/homo_sapiens/%s?statistic=p-value;content-type=application/json' % variant.refsnp_id
@@ -735,12 +785,25 @@ def gtex_over_api(variants_by_gene_by_transcript):
                 print('Found sth!')
                 print(repr(decoded))
 
-        except:
+        except Exception:
             pass
 
 
 @reporter
-def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
+def summarize_copy_number_expression(variants_by_gene):
+
+    cosmic_genes_to_load = get_cosmic_genes_to_load(variants_by_gene)
+    variants_by_gene_by_transcript = group_variants_for_cosmic(variants_by_gene)
+
+    # TODO: expire cache on args.parse_variants, else always load.
+    @cached(action='load')
+    def cacheable_cna():
+        return CompleteCNA(
+            'cosmic/v' + COSMIC_VERSION + '/CosmicCompleteCNA.tsv',
+            restrict_to=cosmic_genes_to_load
+        )
+
+    cna = cacheable_cna()
 
     variants_count = 0
     poly_a_related_variants_count = 0
@@ -763,8 +826,10 @@ def summarize_copy_number_expression(variants_by_gene_by_transcript, cna):
                 no_expression.add(gene_transcript_id)
                 continue
 
-        # treat all variants the same way - just remove duplicates
-        variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
+        variants = []
+
+        for transcript_variants in variants_by_transcript.values():
+            variants.extend(transcript_variants)
 
         """
         # for this analysis consider only variants from cosmic
@@ -831,12 +896,18 @@ def get_all_used_transcript_ids(variants_by_gene):
 
 @reporter
 def spidex(*args, **kwargs):
-    from spidex import spidex
-    spidex(*args, **kwargs)
+    from spidex import poly_aaa_vs_spidex
+    poly_aaa_vs_spidex(*args, **kwargs)
 
 
 @reporter
-def poly_aaa_vs_expression(variants_by_gene_by_transcript, include_all=False):
+def spidex_all(*args, **kwargs):
+    from spidex import all_variants_vs_spidex
+    all_variants_vs_spidex(*args, **kwargs)
+
+
+@reporter
+def poly_aaa_vs_expression(variants_by_gene, include_all=False):
 
     from expression_database import ExpressionDatabase
 
@@ -854,10 +925,8 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, include_all=False):
     gtex_report = []
     gtex_report_by_genes = []
 
-    for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
+    for gene, variants in variants_by_gene.iteritems():
 
-        # treat all variants the same way - just remove duplicates
-        variants = get_all_variants(variants_by_transcript, gene, report_duplicated=False)
         poly_a_related_variants = select_poly_a_related_variants(variants)
 
         print(
@@ -961,48 +1030,17 @@ def poly_aaa_vs_expression(variants_by_gene_by_transcript, include_all=False):
     print('Done')
 
 
-def main(args):
+def perform_analyses(args):
     """The main workflow happens here."""
 
-    variants_by_gene = cacheable_variants_by_gene()
-
-    if args.parse_variants:
-
-        variants_by_gene_by_transcript, cosmic_genes_to_load = parse_variants(
-            variants_by_gene
-        )
-
-        try:
-            with open('.variants_by_gene_by_transcript_37_all_alts.cache', 'wb') as f:
-                pickle.dump(variants_by_gene_by_transcript, f, protocol=pickle.HIGHEST_PROTOCOL)
-            with open('.cosmic_genes_to_load_37_all_alts.cache', 'wb') as f:
-                pickle.dump(cosmic_genes_to_load, f, protocol=pickle.HIGHEST_PROTOCOL)
-        except Exception:
-            traceback.print_exc()
-    else:
-        with open('.variants_by_gene_by_transcript_37_all_alts.cache', 'rb') as f:
-            variants_by_gene_by_transcript = pickle.load(f)
+    variants_by_gene = variants_by_gene_parsed()
 
     for reporter_name in args.report:
         current_reporter = REPORTERS[reporter_name]
 
         try:
-            if reporter_name != 'copy_number_expression':
-                current_reporter(variants_by_gene_by_transcript)
-            else:
-                with open('.cosmic_genes_to_load_37_all_alts.cache', 'rb') as f:
-                    cosmic_genes_to_load = pickle.load(f)
+            current_reporter(variants_by_gene)
 
-                # TODO to cache again later
-                @cached(action='load')
-                def cacheable_cna():
-                    return CompleteCNA(
-                        'cosmic/v' + COSMIC_VERSION + '/CosmicCompleteCNA.tsv',
-                        restrict_to=cosmic_genes_to_load
-                    )
-
-                cna = cacheable_cna()
-                current_reporter(variants_by_gene_by_transcript, cna)
         except Exception:
             traceback.print_exc()
 
@@ -1015,7 +1053,13 @@ def create_arg_parser():
         'attributes_by_page', 'some_variant'
     ]
 
-    parser = argparse.ArgumentParser(description='Find SNPs')
+    parser = argparse.ArgumentParser(description=(
+        'Retrieve all data about user-chosen variants (see --snp_list) '
+        'and perform one or multiple of available analyses (see --report).\n'
+        'Once variants where downloaded and pre-parsed, these will be stored '
+        'in cache until another list of variants will be specified with'
+        'options: --download_variants --parse_variants.'
+    ))
     parser.add_argument('--show', choices=to_show)
     parser.add_argument(
         '--report',
@@ -1023,7 +1067,29 @@ def create_arg_parser():
         choices=REPORTERS.keys(),
         default=[]
     )
-    parser.add_argument('--profile', action='store_true')
+    parser.add_argument(
+        '--variants_list',
+        nargs='+',
+        type=str,
+        default=None,
+        help=(
+            'list of variants to be used in analysis. By default, '
+            'analysis will be performed using variants fetched with biomart '
+            'from coding areas of human genes from PATACSDB.'
+        )
+    )
+    parser.add_argument(
+        '--genes_list',
+        nargs='+',
+        type=str,
+        default=gene_names_from_patacsdb_csv(),
+        help=(
+            'list ofhuman genes from which variants should be extracted for use in '
+            'avaialable analyses. By default all human genes from PATACSDB '
+            'will be used.'
+        )
+    )
+    parser.add_argument('--profile', action='store_true', help='Profiling. For debugging only.')
     parser.add_argument(
         '--dataset',
         type=str,
@@ -1038,13 +1104,6 @@ def create_arg_parser():
         default='http://www.ensembl.org/biomart'
     )
     parser.add_argument(
-        '-n',
-        '--number',
-        type=int,
-        help='Number of genes to analyze',
-        default=None
-    )
-    parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
@@ -1052,12 +1111,14 @@ def create_arg_parser():
     )
     parser.add_argument(
         '-r',
-        '--reload_variants',
+        '--download_variants',
         action='store_true',
+        help='download variants'
     )
     parser.add_argument(
         '--parse_variants',
         action='store_true',
+        help='preparse variants'
     )
     parser.add_argument(
         '-g',
@@ -1101,12 +1162,12 @@ def show_some_variant(dataset):
 
     for gene in genes_from_patacsdb:
 
-        variants_by_gene, variants_count = get_variants_by_genes(
+        variants_by_gene = download_variants_by_genes(
             dataset,
             [gene]
         )
 
-        if variants_count:
+        if variants_by_gene:
 
             gene, variants = variants_by_gene.popitem()
             variant = variants[0]
@@ -1122,18 +1183,16 @@ def reload_gtex():
     from expression_database import ExpressionDatabase
     from expression_database import import_expression_data
 
-    bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation_full.db')
+    bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
 
     import_expression_data(
         bdb,
-        path='GTEx_Analysis_v6p_all-associations',
-        suffix='_Analysis.v6p.all_snpgene_pairs.txt.gz'
+        path='GTEx_Analysis_v6p_eQTL',
+        suffix='_Analysis.v6p.signif_snpgene_pairs.txt.gz'
     )
 
 
 if __name__ == '__main__':
-
-    run = False
 
     args = parse_args(sys.argv)
 
@@ -1160,40 +1219,33 @@ if __name__ == '__main__':
         print('Reloading GTEx expression data:')
         reload_gtex()
 
-    elif args.parse_variants or args.report:
-        run = True
+    if args.report or args.parse_variants or args.download_variants:
 
-    elif not args.reload_variants:
-        print('No task specified.')
-
-    if run or args.reload_variants:
-
-        if args.reload_variants:
-            cache_action = 'save'
+        if args.download_variants:
+            cache = 'save'
         else:
-            assert run
-            cache_action = 'load'
+            cache = 'load'
 
-        genes_from_patacsdb = gene_names_from_patacsdb_csv(args.number)
+        genes_list = args.genes_list
 
-        @cached(action=cache_action)
-        def cacheable_variants_by_gene():
-            variants_by_gene, variants_count = get_variants_by_genes(
+        @cached(action=cache)
+        def cacheable_raw_variants_by_gene():
+            variants_by_gene = download_variants_by_genes(
                 snp_dataset,
-                genes_from_patacsdb,
+                genes_list,
                 step_size=args.step_size
             )
             return variants_by_gene
 
-        variants_by_gene = cacheable_variants_by_gene()
+        raw_variants_by_gene = cacheable_raw_variants_by_gene()
 
-        @cached(action=cache_action)
+        @cached(action=cache)
         def cacheable_transcripts_to_load():
-            return get_all_used_transcript_ids(variants_by_gene)
+            return get_all_used_transcript_ids(raw_variants_by_gene)
 
         transcripts_to_load = cacheable_transcripts_to_load()
 
-        @cached(action=cache_action)
+        @cached(action=cache)
         def cacheable_cds_db():
             return SequenceDB(
                 version=ENSEMBL_VERSION,
@@ -1203,7 +1255,7 @@ if __name__ == '__main__':
                 restrict_to=transcripts_to_load
             )
 
-        @cached(action=cache_action)
+        @cached(action=cache)
         def cacheable_cdna_db():
             return SequenceDB(
                 version=ENSEMBL_VERSION,
@@ -1214,7 +1266,7 @@ if __name__ == '__main__':
             )
 
 
-        @cached(action=cache_action)
+        @cached(action=cache)
         def cacheable_dna_db():
             chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
             dna_db = {}
@@ -1233,15 +1285,22 @@ if __name__ == '__main__':
         for db in constructors:
             db()
 
+        @cached(action='save' if args.parse_variants else 'load')
+        def variants_by_gene_parsed():
+            return parse_variants_by_gene(raw_variants_by_gene)
+
         print(
             'Variants data %s.' %
-            ('saved' if cache_action == 'save' else 'loaded')
+            ('saved' if cache == 'save' else 'loaded')
         )
 
-    if run:
+    if args.report:
 
         if args.profile:
             import profile
-            profile.run('main(args)')
+            profile.run('perform_analyses(args)')
         else:
-            main(args)
+            perform_analyses(args)
+    else:
+        print('No task specified.')
+

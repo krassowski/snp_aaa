@@ -5,7 +5,7 @@ from snp_parser import all_poly_a_variants
 from snp_parser import SPIDEX_LOCATION
 import tabix
 from recordclass import recordclass
-from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab, geom_point, geom_line, stat_smooth, geom_boxplot
+from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -360,8 +360,18 @@ def plot_aaa_vs_spidex(spidex_raw_report):
     #interact(local=dict(globals(), **locals()))
 
 
-def spidex(variants_by_gene_by_transcript):
+def poly_aaa_vs_spidex(variants_by_gene):
     """Analysis of poly A track changing mutations using data from SPIDEX."""
-    aaa_variants_list = all_poly_a_variants(variants_by_gene_by_transcript)
+    aaa_variants_list = all_poly_a_variants(variants_by_gene)
     raw_report = spidex_from_list(aaa_variants_list)
+    plot_aaa_vs_spidex(raw_report)
+
+
+def all_variants_vs_spidex(variants_by_gene):
+    """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
+    all_variants = []
+    for gene_variants in variants_by_gene.values():
+        all_variants.extend(gene_variants)
+
+    raw_report = spidex_from_list(all_variants)
     plot_aaa_vs_spidex(raw_report)

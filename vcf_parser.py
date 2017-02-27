@@ -57,6 +57,11 @@ class VariantCallFormatParser(object):
             chrom = 'chr' + chrom
         pos = [chrom, variant.chrom_start, variant.chrom_end]
 
+        # vcf.parser uses 0-based coordinates:
+        # http://pyvcf.readthedocs.org/en/latest/_modules/vcf/parser.html?highlight=coordinates
+        # ensembl uses 1-based coordinates:
+        # http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
+
         # to get to vcf stored data by vcf reader, change coordinates to 0-based
         pos[1] -= 1
         pos[2] -= 1

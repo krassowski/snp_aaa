@@ -24,7 +24,10 @@ class Variant(object):
         # 'consequence_allele_string'
     )
 
-    __slots__ = attributes + ('ref', 'gene', 'sequence', 'alts', 'poly_aaa', 'correct', '__dict__')
+    __slots__ = attributes + (
+        'ref', 'gene', 'sequence', 'alts', 'poly_aaa', 'correct',
+        'affected_transcripts', '__dict__'
+    )
 
     def __init__(self, args):
 
@@ -32,6 +35,8 @@ class Variant(object):
 
         for i, attr in enumerate(self.attributes):
             setattr(self, attr, args[i])
+
+        self.affected_transcripts = set()
 
     def __repr__(self):
 
