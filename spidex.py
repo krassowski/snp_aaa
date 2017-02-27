@@ -62,7 +62,7 @@ def prepare_data_frame(data_dict, melt=True):
     return df
 
 
-def spidex(variants_by_gene_by_transcript):
+def spidex_from_list(variants_list):
 
     headers = [
         'chromosome', 'position', 'ref_allele', 'mut_allele',
@@ -82,7 +82,7 @@ def spidex(variants_by_gene_by_transcript):
 
     counter = 0
 
-    for variant in all_poly_a_variants(variants_by_gene_by_transcript):
+    for variant in variants_list:
         counter += 1
 
         pos = [
@@ -162,7 +162,58 @@ def spidex(variants_by_gene_by_transcript):
 
                 spidex_report.append(record_data)
 
+    print(
+        'Following mutations were nor found in SPIDEX'
+        ' but may be found manually in SPANR'
+    )
     show_spanr_queries(to_test_online)
+
+    print('Analysed %s mutations.' % counter)
+
+    report(
+        'spidex',
+        map(row_to_tsv, spidex_report),
+        [
+            'chr_name',
+            'chrom_start',
+            'chrom_end',
+            'ref',
+            'alt',
+            'ensembl_gene_stable_id',
+            'chrom_strand',
+            'ensembl_transcript_stable_id',
+            'aaa_increased',
+            'aaa_decreased',
+            'aaa_change',
+            'aaa_before',
+            'aaa_after',
+            'refsnp_id',
+            'dpsi_max_tissue',
+            'record.dpsi_zscore'
+        ]
+    )
+    report(
+        'spidex_to_test_online',
+        map(row_to_tsv, to_test_online),
+        ['chr_name', 'chrom_start', 'refsnp_id', 'ref', 'alt']
+    )
+
+    report(
+        'spidex_skipped_intronic',
+        map(row_to_tsv, skipped_intronic),
+        ['refsnp_id', 'chr_name', 'chrom_start']
+    )
+
+    report(
+        'spidex_skipped_strand_mismatch',
+        map(row_to_tsv, skipped_strand_mismatch),
+        ['refsnp_id', 'chrom_strand', 'SPIDEX_strand']
+    )
+
+    return spidex_raw_report
+
+
+def plot_aaa_vs_spidex(spidex_raw_report):
 
     def variants_list(aaa_condition):
         return [
@@ -305,47 +356,12 @@ def spidex(variants_by_gene_by_transcript):
     g.set_ylabel('PSI z-score')
     draw_plot(g)
 
-    print('Analysed %s mutations.' % counter)
-
     #from code import interact
     #interact(local=dict(globals(), **locals()))
 
-    report(
-        'spidex',
-        map(row_to_tsv, spidex_report),
-        [
-            'chr_name',
-            'chrom_start',
-            'chrom_end',
-            'ref',
-            'alt',
-            'ensembl_gene_stable_id',
-            'chrom_strand',
-            'ensembl_transcript_stable_id',
-            'aaa_increased',
-            'aaa_decreased',
-            'aaa_change',
-            'aaa_before',
-            'aaa_after',
-            'refsnp_id',
-            'dpsi_max_tissue',
-            'record.dpsi_zscore'
-        ]
-    )
-    report(
-        'spidex_to_test_online',
-        map(row_to_tsv, to_test_online),
-        ['chr_name', 'chrom_start', 'refsnp_id', 'ref', 'alt']
-    )
 
-    report(
-        'spidex_skipped_intronic',
-        map(row_to_tsv, skipped_intronic),
-        ['refsnp_id', 'chr_name', 'chrom_start']
-    )
-
-    report(
-        'spidex_skipped_strand_mismatch',
-        map(row_to_tsv, skipped_strand_mismatch),
-        ['refsnp_id', 'chrom_strand', 'SPIDEX_strand']
-    )
+def spidex(variants_by_gene_by_transcript):
+    """Analysis of poly A track changing mutations using data from SPIDEX."""
+    aaa_variants_list = all_poly_a_variants(variants_by_gene_by_transcript)
+    raw_report = spidex_from_list(aaa_variants_list)
+    plot_aaa_vs_spidex(raw_report)
