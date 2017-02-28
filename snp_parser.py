@@ -21,6 +21,7 @@ from biomart_data import BiomartDataset
 from output_formatter import OutputFormatter
 from variant import Variant
 from cache import cacheable
+from fasta_sequence_db import SequenceDB, FastSequenceDB
 
 o = OutputFormatter()
 
@@ -88,7 +89,7 @@ def gene_names_from_patacsdb_csv(limit_to=None):
 
 
 @cacheable
-def download_variants(dataset, gene_names, step_size=50):
+def download_variants(dataset, gene_names, step_size=50, filters={}):
     """Retrieve from Ensembl's biomart all variants that affect given genes.
 
     Variants that occur repeatedly in a given gene (i.e. were annotated for
@@ -106,10 +107,14 @@ def download_variants(dataset, gene_names, step_size=50):
     variants_by_gene = defaultdict(list)
     variants_count = 0
 
-    print('Downloading variants data from Enseml\'s Biomart:')
+    print('Downloading variants data from Ensembl\'s Biomart:')
+
+    # TODO: when gene_names == 'all_human_genes', do not use gene filter
+
     for start in trange(0, len(gene_names), step_size):
 
-        filters = {'ensembl_gene': gene_names[start:start + step_size]}
+        query_filters = {'ensembl_gene': gene_names[start:start + step_size]}
+        query_filters.update(filters)
 
         print('Downloading variants for genes:', gene_names[start:start + step_size])
         variants = VariantsData(filters=filters, dataset=dataset)
@@ -129,22 +134,31 @@ def download_variants(dataset, gene_names, step_size=50):
                 if known_variant.refsnp_id == variant.refsnp_id
             ]
 
+            # if we have more than one, we have a duplicate in old data.
+            assert len(variants_with_the_same_id) <= 1
+
             if variants_with_the_same_id:
                 for known_variant in variants_with_the_same_id:
-                    # TODO NOW!
-                    allowed = (
-                        # ensembl_transcript_stable_id can differ among two
-                        # almost-identical variants
-                        variant.ensembl_transcript_stable_id !=
-                        known_variant.ensembl_transcript_stable_id
-                    )
-                    # TODO: check that all other attributes are equal
-                    assert allowed
 
-                variant.affected_transcripts.update([
-                    known_variant.ensembl_transcript_stable_id
-                    for known_variant in variants_with_the_same_id
-                ])
+                    variable_attributes = {'ensembl_transcript_stable_id'}
+                    const_attributes = set(known_variant.attributes) - variable_attributes
+
+                    for attr in const_attributes:
+                        if getattr(known_variant, attr) != getattr(variant, attr):
+                            raise ValueError(
+                                'Received variants with the same id: %s '
+                                'but different %s. Only transcripts are '
+                                'allowed to differ in Biomart fetched data'
+                            )
+
+                    # this is less important (if variants are the same,
+                    # it's just a duplicate - no worries) - hence just assert
+                    for attr in variable_attributes:
+                        assert getattr(known_variant, attr) != getattr(variant, attr)
+
+                    known_variant.affected_transcripts.update([
+                        variant.ensembl_transcript_stable_id
+                    ])
             else:
                 variants_by_gene[gene].append(variant)
 
@@ -200,6 +214,7 @@ def perform_analyses(args):
 
 def create_arg_parser():
     import argparse
+    import json
     from analyses import REPORTERS
 
     to_show = [
@@ -208,10 +223,12 @@ def create_arg_parser():
     ]
 
     parser = argparse.ArgumentParser(description=(
-        'Retrieve all data about user-chosen variants (see --snp_list) '
-        'and perform one or multiple of available analyses (see --report).\n'
-        'Once variants where downloaded and pre-parsed, these will be stored '
-        'in cache until another list of variants will be specified with'
+        'Retrieve all data about variants from genes belonging to a predefined '
+        'or user-chosen list of genes (see --genes_list) [including list of all '
+        'human genes] and perform one or multiple of available analyses '
+        '(see --report).\n'
+        'Once variants are downloaded and pre-parsed, they will be stored '
+        'in cache until another list of variants will be specified with '
         'options: --download_variants --parse_variants.'
     ))
     parser.add_argument('--show', choices=to_show)
@@ -221,16 +238,22 @@ def create_arg_parser():
         choices=REPORTERS.keys(),
         default=[]
     )
+    # parser.add_argument(
+    #     '--variants_list',
+    #     nargs='+',
+    #     type=str,
+    #     default=None,
+    #     help=(
+    #         'list of variants to be used in analysis. By default, '
+    #         'analysis will be performed using variants fetched with biomart '
+    #         'from coding areas of human genes from PATACSDB.'
+    #     )
+    # )
     parser.add_argument(
-        '--variants_list',
-        nargs='+',
-        type=str,
-        default=None,
-        help=(
-            'list of variants to be used in analysis. By default, '
-            'analysis will be performed using variants fetched with biomart '
-            'from coding areas of human genes from PATACSDB.'
-        )
+        '--filters',
+        type=json.loads,
+        default={},
+        help='Additional variants filters to be used when querying biomart'
     )
     parser.add_argument(
         '--genes_list',
@@ -240,10 +263,14 @@ def create_arg_parser():
         help=(
             'list of human genes from which variants should be extracted for use in '
             'available analyses. By default all human genes from PATACSDB '
-            'will be used.'
+            'will be used. To use all human genes specify "__all__"'
         )
     )
-    parser.add_argument('--profile', action='store_true', help='Profiling. For debugging only.')
+    parser.add_argument(
+        '--profile',
+        action='store_true',
+        help='Profiling. For debugging only.'
+    )
     parser.add_argument(
         '--dataset',
         type=str,
@@ -264,10 +291,13 @@ def create_arg_parser():
         help='increase output verbosity'
     )
     parser.add_argument(
-        '-r',
+        '-d',
         '--download_variants',
         action='store_true',
-        help='download variants'
+        help='Download variants belonging to coding sequence of genes '
+             'specified with --genes_list. '
+             'If additional filters are given with --filters, only variants '
+             'passing specified filters will be downloaded'
     )
     parser.add_argument(
         '--parse_variants',
@@ -275,7 +305,7 @@ def create_arg_parser():
         help='preparse variants'
     )
     parser.add_argument(
-        '-g',
+        '-r',
         '--reload_gtex',
         action='store_true',
     )
@@ -284,7 +314,8 @@ def create_arg_parser():
         '--step_size',
         type=int,
         default=25,
-        help='Variants from how many genes should be requested at once from biomart? Default 25.'
+        help='When using list of genes to download variants, how many genes '
+             'should be sent to biomart at once? Defaults to 25.'
     )
 
     return parser
@@ -344,9 +375,6 @@ def reload_gtex():
         path='GTEx_Analysis_v6p_eQTL',
         suffix='_Analysis.v6p.signif_snpgene_pairs.txt.gz'
     )
-
-
-from fasta_sequence_db import SequenceDB, FastSequenceDB
 
 
 @cacheable
@@ -434,35 +462,40 @@ def main(args):
         print('Reloading GTEx expression data:')
         reload_gtex()
 
-    if args.report or args.parse_variants or args.download_variants:
+    raw_variants_by_gene = None
+
+    # 1. Download
+    if args.download_variants:
 
         genes_list = args.genes_list
+        raw_variants_by_gene = download_variants.save(
+            snp_dataset,
+            genes_list,
+            step_size=args.step_size,
+            filters=args.filters
+        )
+        # transcripts have changed, some databases need reload
+        transcripts_to_load = get_all_used_transcript_ids.save(raw_variants_by_gene)
+        create_cds_db.save(transcripts_to_load)
+        create_cdna_db.save(transcripts_to_load)
 
-        # 1. Download
-        if args.download_variants:
-            raw_variants_by_gene = download_variants.save(snp_dataset, genes_list, step_size=args.step_size)
-            # transcripts have changed, some databases need reload
-            transcripts_to_load = get_all_used_transcript_ids.save(raw_variants_by_gene)
-            create_cds_db.save(transcripts_to_load)
-            create_cdna_db.save(transcripts_to_load)
-        else:
+        print('Raw variants data downloaded, databases reloaded.')
+
+    # 2. Parse
+    if args.parse_variants:
+
+        if not raw_variants_by_gene:
             raw_variants_by_gene = download_variants.load()
 
-        # 2. Parse
-        if args.parse_variants:
-            variants_by_gene_parsed.save(raw_variants_by_gene)
+        variants_by_gene_parsed.save(raw_variants_by_gene)
 
-        print('Variants data ready')
+        print('Variants data parsed and read to use.')
 
+    # 3. Perform chosen analyses and generate reports
     if args.report:
-
-        if args.profile:
-            import profile
-            profile.run('perform_analyses(args)')
-        else:
-            perform_analyses(args)
+        perform_analyses(args)
     else:
-        print('No task specified.')
+        print('No analyses specified.')
 
 
 if __name__ == '__main__':
@@ -471,4 +504,8 @@ if __name__ == '__main__':
     o.force = parsed_args.verbose
     VERBOSITY_LEVEL = parsed_args.verbose
 
-    main(parsed_args)
+    if parsed_args.profile:
+        import profile
+        profile.run('main(parsed_args)')
+    else:
+        main(parsed_args)
