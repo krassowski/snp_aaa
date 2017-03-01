@@ -1,8 +1,30 @@
 import sys
 
 from analyses import report, reporter
+from commands import command
 from snp_parser import select_poly_a_related_variants
 from snp_parser import all_poly_a_variants
+from expression_database import ExpressionDatabase
+from expression_database import import_expression_data
+
+
+GTEX_DATABASE = 'expression_slope_in_tissues_by_mutationa.db'
+
+
+@command('--reload_gtex', action='store_true')
+def reload_gtex(value):
+    if not value:
+        return
+
+    print('Reloading GTEx expression data:')
+
+    bdb = ExpressionDatabase(GTEX_DATABASE)
+
+    import_expression_data(
+        bdb,
+        path='GTEx_Analysis_v6p_eQTL',
+        suffix='_Analysis.v6p.signif_snpgene_pairs.txt.gz'
+    )
 
 
 @reporter
@@ -39,9 +61,7 @@ def gtex_over_api(variants_by_gene):
 @reporter
 def poly_aaa_vs_expression(variants_by_gene, include_all=False):
 
-    from expression_database import ExpressionDatabase
-
-    bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation_full.db')
+    bdb = ExpressionDatabase(GTEX_DATABASE)
 
     def is_length_difference_big(l1, l2):
         """Is the first list much longer than the second?"""

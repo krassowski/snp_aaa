@@ -26,14 +26,24 @@ class cacheable(object):
 
         return result
 
-    def load(self):
-        if not os.path.exists(self.cache_name):
+    def load_or_create(self, *args, **kwargs):
+        """Load or create results of cacheable function.
+
+        If unable to find a file with saved cache, the decorated
+        function will be executed and results will be saved.
+
+        If args or kwargs are specified, those will be used
+        during decorated function execution.
+        """
+        if os.path.exists(self.cache_name):
+            return self.load()
+        else:
             print(
                 'Cache data for %s do not exists - running %s' %
                 (self.display_name, self.func.__name__)
             )
             try:
-                return self.save()
+                return self.save(*args, **kwargs)
             except TypeError:
                 print(
                     'Whops! %s needs to be loaded manually as there are few arguments required' %
@@ -41,6 +51,7 @@ class cacheable(object):
                 )
                 sys.exit(1)
 
+    def load(self):
         with open(self.cache_name, 'rb') as f:
             try:
                 result = pickle.load(f)

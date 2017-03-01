@@ -29,12 +29,16 @@ class Variant(object):
         'affected_transcripts', '__dict__'
     )
 
-    def __init__(self, args):
+    def __init__(self, line_args, **kwargs):
 
-        args = args.split('\t')
+        if line_args:
+            args = line_args.split('\t')
 
-        for i, attr in enumerate(self.attributes):
-            setattr(self, attr, args[i])
+            for i, attr in enumerate(self.attributes):
+                setattr(self, attr, args[i])
+
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
         self.affected_transcripts = set()
 

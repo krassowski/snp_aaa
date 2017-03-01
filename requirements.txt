@@ -1,8 +1,10 @@
-pytabix
+pytabix==0.1
 ggplot==0.6.8
-recordclass
-pyvcf
-pysam
-requests
-tqdm
-seaborn
+recordclass==0.4.2
+pyvcf==0.6.8
+pysam==0.9.1.4
+requests==02.12.1
+tqdm==4.10.0
+seaborn==0.7.1
+scipy==0.18.1
+beautifulsoup4==4.5.3

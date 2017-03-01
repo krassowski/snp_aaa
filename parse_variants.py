@@ -132,7 +132,7 @@ def choose_best_seq(reference_seq):
     return reference_seq[chosen]
 
 
-def decode_phen_code(code):
+def decode_hgvs_code(code):
     """
     Comply to HGVS recommendations: http://www.hgvs.org/mutnomen/recs.html
 
@@ -146,6 +146,9 @@ def decode_phen_code(code):
         'FANCD1:c.8219T>A',
         'FANCD1:c.9672dupA'
     ]
+
+    Returns:
+        gene, pos, ref, alt
     """
     # TODO testy
     ref, alt = '', ''
@@ -154,14 +157,18 @@ def decode_phen_code(code):
 
     match = re.match(
         '([\d]+)(_[\d]+)?([ACTG]+)?(dup|>|del|ins)([ACTG]+)(dup|>|del|ins)?([ACTG]+)?',
-        code
+        location[2:]
     )
+
+    if not match:
+        raise ValueError('Cannot understand mutation code: %s' % code)
 
     # genomic and mitochondrial positions can be validated easily
     if pos_type in ('g', 'm'):
         pos = match.group(1)
     elif pos_type in ('c', 'n', 'p'):
-        pos = None
+        # TODO
+        pos = int(match.group(1))
     else:
         raise ParsingError(
             'Wrong type of variant position specification: %s' % pos_type
@@ -223,7 +230,7 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
 
     if variant.refsnp_source == 'PhenCode':
         alt_source = 'PhenCode'
-        gene, pos, ref, alt = decode_phen_code(variant.refsnp_id)
+        gene, pos, ref, alt = decode_hgvs_code(variant.refsnp_id)
         alts = [alt]
     else:
         alt_source = 'VCF'
@@ -466,5 +473,4 @@ def get_unique_variants(variants):
         unique_variants[key].affected_transcripts.add(transcript)
 
     return unique_variants.values()
-
 

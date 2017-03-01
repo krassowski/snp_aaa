@@ -3,6 +3,7 @@ from collections import OrderedDict
 from analyses import report, reporter
 from snp_parser import all_poly_a_variants
 from snp_parser import SPIDEX_LOCATION
+from cache import cacheable
 import tabix
 from recordclass import recordclass
 from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab
@@ -13,6 +14,15 @@ import seaborn as sns
 sns.set(color_codes=True)
 
 DRAW_PLOTS = True
+
+
+headers = [
+    'chromosome', 'position', 'ref_allele', 'mut_allele',
+    'dpsi_max_tissue', 'dpsi_zscore', 'gene', 'strand', 'transcript',
+    'exon_number', 'location', 'cds_type', 'ss_dist', 'commonSNP_rs'
+]
+
+SpidexRecord = recordclass('SpidexRecord', headers)
 
 
 def row_to_tsv(data):
@@ -62,15 +72,23 @@ def prepare_data_frame(data_dict, melt=True):
     return df
 
 
-def spidex_from_list(variants_list):
+def spidex_get_variant(tb, variant):
 
-    headers = [
-        'chromosome', 'position', 'ref_allele', 'mut_allele',
-        'dpsi_max_tissue', 'dpsi_zscore', 'gene', 'strand', 'transcript',
-        'exon_number', 'location', 'cds_type', 'ss_dist', 'commonSNP_rs'
+    pos = [
+        'chr' + variant.chr_name,
+        variant.chrom_start - 1,
+        variant.chrom_end
     ]
 
-    SpidexRecord = recordclass('SpidexRecord', headers)
+    records = [
+        SpidexRecord(*record)
+        for record in tb.query(*pos)
+    ]
+
+    return records
+
+
+def spidex_from_list(variants_list):
 
     tb = tabix.open(SPIDEX_LOCATION)
 
@@ -85,16 +103,7 @@ def spidex_from_list(variants_list):
     for variant in variants_list:
         counter += 1
 
-        pos = [
-            'chr' + variant.chr_name,
-            variant.chrom_start - 1,
-            variant.chrom_end
-        ]
-
-        records = [
-            SpidexRecord(*record)
-            for record in tb.query(*pos)
-        ]
+        records = spidex_get_variant(tb, variant)
 
         for alt, aaa_data in variant.poly_aaa.items():
 
@@ -371,9 +380,55 @@ def poly_aaa_vs_spidex(variants_by_gene):
 @reporter
 def all_variants_vs_spidex(variants_by_gene):
     """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
+
     all_variants = []
+
     for gene_variants in variants_by_gene.values():
         all_variants.extend(gene_variants)
 
-    raw_report = spidex_from_list(all_variants)
-    plot_aaa_vs_spidex(raw_report)
+    raise NotImplementedError
+    # plot_aaa_vs_spidex(all_variants)
+
+
+@cacheable
+def get_all_zscore():
+    """Get all dpsi_zscore from spidex database."""
+    zscores = []
+
+    with open(SPIDEX_LOCATION) as f:
+        for line in f:
+            record = SpidexRecord(*line.split('\t'))
+            print(record)
+
+            zscores.append(record.dpsi_zscore)
+
+    return zscores
+
+
+@reporter
+def spidex_ks_test(variants_by_gene):
+    """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
+    from scipy.stats import ks_2samp
+
+    tb = tabix.open(SPIDEX_LOCATION)
+
+    spidex_zscore_dist = get_all_zscore.load_or_create()
+
+    for gene, variants in variants_by_gene:
+
+        variants_z_scores = []
+
+        for variant in variants:
+            variants_z_scores.extend([
+                record.dpsi_zscore
+                for record in spidex_get_variant(tb, variant)
+             ])
+
+        ks_result = ks_2samp(spidex_zscore_dist, variants_z_scores)
+
+        print(
+            'Kolmogorov-Smirnov test for %s gene with %s variants analysed'
+            %
+            (gene, len(variants))
+        )
+        print(ks_result)

@@ -1,6 +1,5 @@
 import os
 from collections import OrderedDict
-
 from snp_parser import VERBOSITY_LEVEL
 
 
@@ -33,14 +32,21 @@ def report(name, data, column_names=()):
 
 
 REPORTERS = OrderedDict()
+VARIANTS_GETTERS = {}
 
 
 def reporter(func):
     REPORTERS[func.__name__] = func
     return func
 
-# Temporarily, TODO remove asterixes
-from cosmic import *
-from spidex import *
-from gtex import *
-from poly_aaa import *
+
+def variants_getter(func):
+    VARIANTS_GETTERS[func.__name__] = func
+    return func
+
+
+import cosmic
+import spidex
+import gtex
+import poly_aaa
+import pkd
