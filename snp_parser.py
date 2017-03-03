@@ -36,6 +36,8 @@ COSMIC_VERSION = '79'
 DBSNP_VERSION = '149'
 SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
 
+DEFAULT_BIOMART_URL = 'http://grch37.ensembl.org/biomart'
+
 
 vcf_locations = {
     #'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
@@ -335,9 +337,14 @@ def create_arg_parser():
     parser.add_argument(
         '--biomart',
         type=str,
-        help='URL of biomart to be used. '
-             'For ensembl mirrors replace www with: uswest, useast or asia',
-        default='http://www.ensembl.org/biomart'
+        help=(
+            'URL of biomart to be used. Default: %s. '
+            'To query GRCh38 use http://www.ensembl.org/biomart/ '
+            'For mirrors of GRCh38 replace "www" with: "uswest", "useast" or "asia". '
+            %
+            DEFAULT_BIOMART_URL
+        ),
+        default=DEFAULT_BIOMART_URL
     )
     parser.add_argument(
         '-v',
