@@ -12,7 +12,15 @@ from recordclass import recordclass
 
 PKDB_URL = 'http://pkdb.mayo.edu/cgi-bin/v2_display_mutations.cgi?apkd_mode=PROD&username='
 
-Gene = recordclass('Gene', ['chrom', 'strand', 'tx_start', 'tx_end', 'cds_start', 'cds_end'])
+Gene = recordclass(
+    'Gene',
+    [
+        'ensembl_transcript_stable_id',
+        'chrom', 'strand',
+        'tx_start', 'tx_end',
+        'cds_start', 'cds_end',
+    ]
+)
 
 
 """
@@ -29,10 +37,28 @@ PKD2:
 157	NM_000297	chr4	+	88928798	88998931	88928885	88996846	15	88928798,88940609,88957371,88959402,88964384,88967793,88973142,88977237,88979134,88983057,88986525,88986913,88989049,88995963,88996609,	88929480,88940723,88957505,88959653,88964609,88968022,88973310,88977419,88979255,88983156,88986647,88987031,88989213,88996111,88998931,	0	PKD2	cmpl	cmpl	0,1,1,0,2,2,0,0,2,0,0,2,0,2,0,
 
 (i.e., c.1232_1234delATC in lieu of g.44003delATC or p.LEU440del).
+
+I converted refseq ids to ensembl using biomart: http://grch37.ensembl.org/biomart/
+
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE Query>
+<Query  virtualSchemaName = "default" formatter = "TSV" header = "0" uniqueRows = "0" count = "" datasetConfigVersion = "0.6" >
+    <Dataset name = "hsapiens_gene_ensembl" interface = "default" >
+        <Filter name = "refseq_mrna" value = "NM_000296"/>
+        <Attribute name = "ensembl_gene_id" />
+        <Attribute name = "ensembl_transcript_id" />
+    </Dataset>
+</Query>
+
 """
-# TODO: ensembl_transcript_stable_id itd...
+
 GENES = {
-    'PDK1': Gene(chrom='chr16', strand='-', tx_start=2138710, tx_end=2185899, cds_start=2139727, cds_end=2185690)
+    'PDK1': Gene(
+        ensembl_transcript_stable_id='ENST00000423118',
+        chrom='chr16', strand='-',
+        tx_start=2138710, tx_end=2185899,
+        cds_start=2139727, cds_end=2185690
+    )
 }
 
 
@@ -126,7 +152,11 @@ def polycystic_kidney_disease_variants(exonic_only=True):
 
         gene = GENES[gene_name]
 
-        variant = Variant(None, ref=ref, alts=[alt], cds_start=gene.cds_start + pos)
+        variant = Variant(
+            None, ref=ref, alts=[alt],
+            cds_start=gene.cds_start + pos,
+            ensembl_transcript_stable_id=gene.ensembl_transcript_stable_id
+        )
         variants_by_genes[gene_name].append(variant)
 
     return variants_by_genes
