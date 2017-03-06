@@ -547,9 +547,14 @@ def main(args):
 
     # 2. Parse
     if args.parse_variants:
-
+        # has to be merged into one step
+        download_method = args.download_variants
         if not raw_variants_by_gene:
-            raw_variants_by_gene = download_variants.load()
+            if download_method == 'biomart':
+                raw_variants_by_gene = download_variants.load()
+            else:
+                from analyses import VARIANTS_GETTERS
+                raw_variants_by_gene = VARIANTS_GETTERS[download_method]()
 
         variants_by_gene_parsed.save(raw_variants_by_gene)
 

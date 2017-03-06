@@ -154,9 +154,17 @@ def polycystic_kidney_disease_variants(exonic_only=True):
 
         variant = Variant(
             None, ref=ref, alts=[alt],
-            cds_start=gene.cds_start + pos,
-            ensembl_transcript_stable_id=gene.ensembl_transcript_stable_id
+            chr_name=gene.chrom,
+            chrom_start=gene.cds_start + pos,
+            ensembl_transcript_stable_id=gene.ensembl_transcript_stable_id,
+            refsnp_id=hgvs_code
         )
+        # TODO: tried to use
+        # http://myvariant.info/ to map variants, get variants data.
+        # as_hgvs won work until ref is given.
+        # back in the same point
+        print(variant.as_hgvs())
+
         variants_by_genes[gene_name].append(variant)
 
     return variants_by_genes

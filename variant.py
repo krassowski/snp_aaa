@@ -51,6 +51,22 @@ class Variant(object):
 
         return representation
 
+    def as_hgvs(self):
+        for alt in self.alts:
+            if self.ref == alt:
+                positions = self.chrom_start
+                event = '{ref}>{alt}'.format(ref=self.ref, alt=alt)
+            elif self.ref > alt:
+                positions = '{start}_{end}'.format(start=self.chrom_start, end=self.chrom_start + len(self.ref))
+                event = 'del'
+            elif self.ref < alt:
+                positions = '{start}_{end}'.format(start=self.chrom_start, end=self.chrom_start + len(alt))
+                event = 'ins{inserted}'.format(inserted=alt)
+            else:
+                assert False
+
+            return '{chrom}:g.{positions}{event}'.format(chrom=self.chr_name, positions=positions, event=event)
+
     @property
     def padded_coords(self):
 
