@@ -92,39 +92,7 @@ VCF files from Cosmic will need an additional processing - creation of tabix fil
 
 #### Ensembl
 
-All files from Ensembl should be placed in `ensembl` directory. Those files could be downloaded using following script:
-```
-version=75
-assembly=37
-
-cd ensembl
-if [ -d "$version" ]
-	echo "This version of ensembl data is already installed"
-else
-	mkdir $version
-
-	if (( $assembly < 76 ))
-	then
-		assembly="$assembly.$version"
-	fi
-
-	wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/cds/Homo_sapiens.GRCh$assembly.cds.all.fa.gz
-	wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh$assembly.cdna.all.fa.gz
-	wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.*.fa.gz
-	wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
-
-	if (( $assembly > 75 ))
-	then
-		wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
-	else
-		./vcf_to_tabix.sh Homo_sapiens.vcf.gz
-		mv Homo_sapiens.vcf.gz Homo_sapiens.vcf.gz.unsorted
-		mv Homo_sapiens.vcf.gz.bgz Homo_sapiens.vcf.gz
-		mv Homo_sapiens.vcf.gz.bgz.tbi Homo_sapiens.vcf.gz.tbi
-	fi
-fi
-
-```
+All files from Ensembl should be placed in `ensembl` directory. Those files could be downloaded using `download_ensembl.sh` bash script (note that it requires edits when using different genome assembly GRCh versions).
 
 When analyzing only somatic mutations one might want to use `Homo_sapiens_somatic.vcf.gz` instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
 
