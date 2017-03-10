@@ -1,9 +1,8 @@
 import requests
 import sys
 from collections import defaultdict
-from analyses import variants_getter
+from variant_sources import variants_getter
 
-from biomart_data import BiomartDataset
 from cache import cacheable
 from parse_variants import decode_hgvs_code
 from variant import Variant
@@ -105,7 +104,7 @@ def get_raw_table():
 
 
 @variants_getter
-def polycystic_kidney_disease_variants(exonic_only=True):
+def polycystic_kidney_disease_variants(args, exonic_only=True):
     """Fetch variants associated with PKD1 from PKDB."""
     variants_by_genes = defaultdict(list)
 

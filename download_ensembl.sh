@@ -35,6 +35,8 @@ else
         mv Homo_sapiens.vcf.gz.bgz.tbi Homo_sapiens.vcf.gz.tbi
     fi
 
+    wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.X.fa.gz
+    wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.Y.fa.gz
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.*.fa.gz -R Homo_sapiens.GRCh$assembly.dna.chromosome.HG*_PATCH.fa.gz
 fi
 

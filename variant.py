@@ -1,7 +1,60 @@
-class Variant(object):
+from output_formatter import formatter
 
-    # sequence offset
-    offset = 20
+
+class SlottedObject(object):
+
+    __slots__ = ()
+    # volatile attributes will be ignored during objects comparison
+    __volatile_attributes__ = []
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def __eq__(self, other):
+        return (
+            isinstance(other, self.__class__) and
+            self.__slots__ == other.__slots__ and
+            all(
+                [
+                    getattr(self, attr_name, None) == getattr(other, attr_name, None)
+                    for attr_name in self.__slots__
+                    if attr_name not in self.__volatile_attributes__
+                ]
+            )
+        )
+
+    def __hash__(self):
+        return (
+            getattr(self, attr_name, None)
+            for attr_name in self.__slots__
+            if attr_name not in self.__volatile_attributes__
+        ).__hash__()
+
+    def __repr__(self):
+        kwargs = {}
+
+        for attr in self.__slots__:
+            value = getattr(self, attr, None)
+            if value:
+                kwargs[attr] = value
+
+        return formatter(kwargs, name=self.__class__.__name__)
+
+
+class Transcript(SlottedObject):
+
+    __slots__ = (
+        'ensembl_id',
+        'strand',
+        'cdna_start',
+        'cdna_end',
+        'cds_start',
+        'cds_end'
+    )
+
+
+class BiomartVariant(SlottedObject):
 
     attributes = (
         'refsnp_id',
@@ -24,32 +77,69 @@ class Variant(object):
         # 'consequence_allele_string'
     )
 
-    __slots__ = attributes + (
-        'ref', 'gene', 'sequence', 'alts', 'poly_aaa', 'correct',
-        'affected_transcripts', '__dict__'
-    )
+    __slots__ = attributes
 
-    def __init__(self, line_args, **kwargs):
+    def __init__(self, line_args):
+
+        kwargs = {}
 
         if line_args:
             args = line_args.split('\t')
+            kwargs = dict(zip(self.attributes, args))
 
-            for i, attr in enumerate(self.attributes):
-                setattr(self, attr, args[i])
+        super(BiomartVariant, self).__init__(**kwargs)
 
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+    def extract_transcript(self):
+        return Transcript(
+            ensembl_id=self.ensembl_transcript_stable_id,
+            strand=self.ensembl_transcript_chrom_strand,
+            cdna_start=self.cdna_start,
+            cdna_end=self.cdna_end,
+            cds_start=self.cds_start,
+            cds_end=self.cds_end
+        )
+
+
+class Variant(SlottedObject):
+
+    __volatile_attributes__ = (
+        'affected_transcripts',
+    )
+
+    # sequence offset
+    offset = 20
+
+    biomart_attributes = (
+        'refsnp_id',
+        'refsnp_source',
+        'chr_name',
+        'chrom_start',
+        'chrom_end',
+        # 'allele',  # Variant Alleles
+        'allele_1',  # Ancestral allele - the most frequent allele
+        'minor_allele',     # the second most frequent allele
+        'chrom_strand',
+        # 'consequence_type_tv',
+        # 'consequence_allele_string'
+    )
+
+    attributes = (
+        'ref',
+        'gene',
+        'sequence',
+        'alts',
+        'poly_aaa',
+        'correct',
+        'affected_transcripts'
+    )
+
+    __slots__ = attributes + biomart_attributes
+
+    def __init__(self, **kwargs):
 
         self.affected_transcripts = set()
 
-    def __repr__(self):
-
-        representation = 'Variant:'
-
-        for attr in self.attributes:
-            representation += '\n\t %s: %s' % (attr, getattr(self, attr))
-
-        return representation
+        super(Variant, self).__init__(**kwargs)
 
     def as_hgvs(self):
         for alt in self.alts:

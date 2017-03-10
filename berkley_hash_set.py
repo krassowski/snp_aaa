@@ -78,6 +78,19 @@ class BerkleyHashSet(object):
             key = bytes(key)
         self.db[key] = bytes('|'.join(items))
 
+    def __iter__(self):
+        return iter(self.db)
+
+    def items(self):
+        for key, value in self.db.iteritems():
+            yield (
+                key,
+                SetWithCallback(
+                    value.decode('utf-8').split('|'),
+                    lambda new_set: self.__setitem__(key, new_set)
+                )
+            )
+
     def __len__(self):
         return len(self.db)
 

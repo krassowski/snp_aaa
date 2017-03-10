@@ -61,10 +61,10 @@ class ExpressionDatabase(BerkleyHashSet):
 
         print('Variant: %s' % mutation.refsnp_id)
 
-        for chr, pos, ref, alt in mutation.padded_coords:
+        for chrom, pos, ref, alt in mutation.padded_coords:
 
             key = '_'.join(map(str, [
-                chr,
+                chrom,
                 pos,
                 ref,
                 alt
@@ -80,6 +80,14 @@ class ExpressionDatabase(BerkleyHashSet):
             ]
 
         return results
+
+    def items(self):
+        for key, data in super(ExpressionDatabase, self).items():
+            yield key.split('_'), [
+                (t, float(e))
+                for datum in data
+                for (t, e) in [datum.split(',')]
+            ]
 
     def __getitem__(self, mutation_key):
         value = super(ExpressionDatabase, self).__getitem__(

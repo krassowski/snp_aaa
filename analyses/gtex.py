@@ -12,7 +12,7 @@ GTEX_DATABASE = 'expression_slope_in_tissues_by_mutationa.db'
 
 
 @command('--reload_gtex', action='store_true')
-def reload_gtex(value):
+def reload_gtex(value, args):
     if not value:
         return
 

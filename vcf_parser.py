@@ -43,6 +43,19 @@ class VariantCallFormatParser(object):
             for source, path in vcf_locations.items()
         }
 
+    def get_by_transcript(self, transcript, pos, source):
+
+        hgnc_name = get_hgnc(transcript.ensembl_id)
+
+        record_id = ''.join([hgnc_name, ':c.', transcript.cds_start])
+
+        data = []
+        for record in self.get_by_pos(source, pos):
+            if record.ID.startswith(record_id):
+                data.append(record)
+
+        return data
+
     def get_by_variant(self, variant, source=None, require_id_match=True):
         """Get vcf data for given variant from one of available VCF files.
 
@@ -69,24 +82,30 @@ class VariantCallFormatParser(object):
         # and represent them as a range
         pos[2] += 1
 
-        source = variant.refsnp_source
+        source = source if source else variant.refsnp_source
         record_id = variant.refsnp_id
 
         if source not in self.readers:
             source = self.default_source
 
+            data = []
+            try:
+                for transcript in variant.affected_transcripts:
+                    data.extend(
+                        self.get_by_transcript(transcript, pos, source)
+                    )
+            except ParsingError as e:
+                print(variant)
+                raise e
+
             if not source:
                 raise ParsingError(
                     'Either source or default_source must be present'
-                    'to choose vcf file to look up'
+                    ' to choose vcf file to look up'
                 )
-
-            hgnc_name = get_hgnc(variant.ensembl_transcript_stable_id)
-
-            record_id = ''.join([
-                hgnc_name, ':c.', variant.cds_start,
-                variant.allele_1, '>', variant.minor_allele
-            ])
+            if data:
+                print('Guessed VCF record for %s.' % variant.refsnp_id)
+            return data
 
         if require_id_match:
             return self.get_by_id(source, pos, record_id)
@@ -107,8 +126,11 @@ class VariantCallFormatParser(object):
 
         vcf_data = []
 
-        for record in reader.fetch(*pos):
-            vcf_data.append(record)
+        try:
+            for record in reader.fetch(*pos):
+                vcf_data.append(record)
+        except ValueError:
+            raise ParsingError('Failed to create iterator for pos: %s' % pos)
 
         return vcf_data
 

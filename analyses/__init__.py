@@ -1,5 +1,6 @@
 import os
 from collections import OrderedDict
+
 from snp_parser import VERBOSITY_LEVEL
 
 
@@ -32,7 +33,6 @@ def report(name, data, column_names=()):
 
 
 REPORTERS = OrderedDict()
-VARIANTS_GETTERS = {}
 
 
 def reporter(func):
@@ -40,13 +40,8 @@ def reporter(func):
     return func
 
 
-def variants_getter(func):
-    VARIANTS_GETTERS[func.__name__] = func
-    return func
-
-
 import cosmic
 import spidex
 import gtex
 import poly_aaa
-import pkd
+import gtex_vs_spidex

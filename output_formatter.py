@@ -1,34 +1,32 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-from __future__ import print_function
+level = 0
 
 
-class OutputFormatter(object):
-    def __init__(self):
-        self.i = 0
-        self.silent = False
-        self.force = False
+def formatter(obj, skip_tab=False, name=None):
+    global level
+    level += 1
+    text = ''
 
-    def indent(self):
-        self.i += 1
+    if name:
+        text += name + ':' + '\n'
 
-    def outdent(self):
-        if self.i > 0:
-            self.i -= 1
+    if not skip_tab:
+        text += '\t' * level
 
-    def mute(self):
-        self.silent = True
+    if type(obj) is dict:
+        text += '\n'
+        for key in sorted(obj.keys()):
+            value = obj[key]
+            text += '\t' * level + key + ':' + formatter(value, True) + '\n'
+    elif type(obj) in (list, tuple, set):
+        text += '\n'
+        text += '\t' * level + obj.__class__.__name__ + ': '
+        text += '\n'
+        for value in tuple(obj):
+            text += '\t' * level + formatter(value, True) + '\n'
+    else:
+        text += '\t' + repr(obj)
 
-    def unmute(self):
-        self.silent = False
+    level -= 1
+    return text
 
-    def print(self, *args, **kwargs):
-        if self.silent and not self.force:
-            return False
-        args = list(args)
-        lines = str(args[0]).split('\n')
-        for line in lines:
-            args[0] = '\t' * self.i + str(line)
-            print(*args, **kwargs)
 

@@ -24,39 +24,50 @@ class UnknownChromosome(Exception):
     pass
 
 
-def get_reference_seq(variant, databases, offset):
+def get_reference_seq(variant, dna_db, transcript_databases, offset):
 
+    chrom = variant.chr_name
+
+    try:
+        chrom = dna_db[chrom]
+        seq = chrom.fetch(variant.chrom_start, variant.chrom_end, offset)
+    except KeyError:
+        raise UnknownChromosome(chrom)
+
+    reference_sequences = []
+    for transcript in variant.affected_transcripts:
+        ref = get_reference_by_transcript(transcript, transcript_databases, offset)
+        reference_sequences.append(ref)
+
+    if not reference_sequences:
+        return False
+
+    first = reference_sequences[0]
+    if not all(first == ref for ref in reference_sequences):
+        print('Potentially different references for different transcripts for %s' % variant.refsnp_id)
+
+    reference_seq = first
+    reference_seq['chrom'] = seq
+
+    return reference_seq
+
+
+def get_reference_by_transcript(transcript, databases, offset):
     reference_seq = {}
 
-    transcript_id = variant.ensembl_transcript_stable_id
-    strand = int(variant.ensembl_transcript_chrom_strand)
+    transcript_id = transcript.ensembl_id
+    strand = int(transcript.strand)
 
     for db in databases:
-
-        if type(db) is dict:
-            src = 'chrom'
-        else:
-            src = db.sequence_type
+        src = db.sequence_type
 
         try:
-            start = getattr(variant, src + '_start')
-            end = getattr(variant, src + '_end')
+            start = getattr(transcript, src + '_start')
+            end = getattr(transcript, src + '_end')
         except IndexError:
-            #  print(
-            #     'Lack of', src, 'coordinates for variant:',
-            #     variant.refsnp_id, 'in context of',
-            #     transcript_id
-            # )
             continue
 
-        if src == 'chrom':
-            try:
-                chrom = db[variant.chr_name]
-                seq = chrom.fetch(start, end, offset)
-            except KeyError:
-                raise UnknownChromosome(variant.chr_name)
-        else:
-            seq = db.fetch(transcript_id, strand, start, end, offset)
+        seq = db.fetch(transcript_id, strand, start, end, offset)
 
         reference_seq[src] = seq
 
@@ -211,7 +222,8 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
     try:
         reference_sequences = get_reference_seq(
             variant,
-            (cdna_db, cds_db, dna_db),
+            dna_db,
+            (cdna_db, cds_db),
             offset
         )
     except UnknownChromosome as e:
@@ -239,9 +251,12 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
             vcf_data = vcf_parser.get_by_variant(variant)
             if len(vcf_data) > 1:
                 print(
-                    'VCF data containts more than one record matching %s'
+                    'VCF data contains more than one record matching %s '
                     'variant: %s ' % (variant.refsnp_id, vcf_data)
                 )
+            elif len(vcf_data) == 0:
+                raise ParsingError('No VCF data for %s.' % variant.refsnp_id)
+
             analysed_vcf_record = vcf_data[0]
             pos, ref, alts = vcf_parser.parse(analysed_vcf_record)
             gene = vcf_parser.get_gene(analysed_vcf_record)
@@ -326,7 +341,7 @@ def analyze_poly_a(variant, offset):
 
 
 def create_databases():
-    constructors = [create_dna_db, create_cds_db, create_cdna_db]
+    constructors = [create_cds_db, create_cdna_db, create_dna_db]
 
     databases = [
         db.load()
@@ -402,6 +417,8 @@ def parse_variants_by_gene(variants_by_gene):
     merged_duplicates = 0
     rejected_count = 0
 
+    create_dna_db.load_or_create()
+
     # parsing variants start
     parsing_pool = Pool(12, init_worker, maxtasksperchild=1)
 
@@ -450,27 +467,17 @@ def get_unique_variants(variants):
     All transcript affected by variants sharing listed properties
     will expand "affected_transcripts" set of returned variant.
     """
-    unique_variants = {}
+    unique_variants = set()
 
     for variant in variants:
-        transcript = variant.ensembl_transcript_stable_id
+        if variant not in unique_variants:
+            unique_variants.add(variant)
+        else:
 
-        key = '\t'.join(map(
-            str,
-            [
-                variant.chr_name,
-                variant.chrom_start,
-                variant.chrom_end,
-                variant.ref,
-                ','.join([str(n) for n in sorted(set(variant.alts))]),
-                variant.ensembl_gene_stable_id
-            ]
-        ))
+            for old in unique_variants:
+                if old == variant:
+                    old.affected_transcripts.update(variant.affected_transcripts)
+                    break
 
-        if key not in unique_variants.keys():
-            unique_variants[key] = variant
-
-        unique_variants[key].affected_transcripts.add(transcript)
-
-    return unique_variants.values()
+    return unique_variants
 

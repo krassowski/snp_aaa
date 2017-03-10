@@ -7,10 +7,10 @@ def command(*args, **kwargs):
     if args in COMMANDS:
         raise ValueError('%s is already defined!' % args)
 
-    def decorator(func):
-        COMMANDS[args] = (kwargs, func)
+    def decorator(handler=None):
+        COMMANDS[args] = (kwargs, handler)
 
-        return func
+        return handler
 
     return decorator
 
@@ -20,9 +20,10 @@ def execute_commands(args):
     using provided 'args' arguments - result of argparse parsing.
     """
     for cmd_args, command_tuple in COMMANDS.items():
-        _, func = command_tuple
+        _, handler = command_tuple
         arg = getattr(args, cmd_args[0].lstrip('-'))
-        func(arg)
+        if handler:
+            handler(arg, args)
 
 
 def append_commands(parser):
