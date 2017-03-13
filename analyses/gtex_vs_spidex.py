@@ -6,6 +6,7 @@ from analyses.spidex import spidex_get_variant
 from expression_database import ExpressionDatabase
 from snp_parser import SPIDEX_LOCATION
 from variant import Variant
+from scipy.stats import pearsonr
 
 
 @reporter
@@ -33,6 +34,9 @@ def gtex_on_spidex(_):
     all spidex records
     """
 
+    effect_sizes = []
+    z_scores = []
+
     bdb = ExpressionDatabase(GTEX_DATABASE)
     tb = tabix.open(SPIDEX_LOCATION)
 
@@ -55,15 +59,12 @@ def gtex_on_spidex(_):
                     break
 
             if record and record.location == 'exonic':
-                maximum_across_tissues = tissues_and_slopes[0][1]
-                minimum_across_tissues = tissues_and_slopes[0][1]
 
                 for tissue, slope in tissues_and_slopes:
-                    if slope > maximum_across_tissues:
-                        maximum_across_tissues = slope
-                    elif slope < minimum_across_tissues:
-                        minimum_across_tissues = slope
+                    effect_sizes.append(slope)
+                    z_scores.append(record.dpsi_zscore)
 
-                print(chrom, pos, ref, alt, minimum_across_tissues, maximum_across_tissues)
-                print(record)
+                # print(chrom, pos, ref, alt)
+                # print(record)
 
+        pearsonr(effect_sizes, z_scores)
