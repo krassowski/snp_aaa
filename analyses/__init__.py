@@ -40,6 +40,7 @@ def reporter(func):
     return func
 
 
+import zcrb1
 import cosmic
 import spidex
 import gtex

@@ -88,6 +88,86 @@ def spidex_get_variant(tb, variant):
     return records
 
 
+class StrandMismatch(Exception):
+    pass
+
+
+class Mismatch(Exception):
+    pass
+
+
+class Intronic(Exception):
+    pass
+
+
+def choose_record(records, variant, alt, silent_intronic=False, convert_strands=False):
+
+    relevant_records = [
+        record
+        for record in records
+        if convert_to_strand(record.mut_allele, record.strand) in alt
+    ]
+
+    if not relevant_records:
+        return []
+
+    assert len(relevant_records) == 1
+
+    record = relevant_records[0]
+
+    if record.location == 'intronic':
+        if silent_intronic:
+            return []
+        repr_data = (variant.refsnp_id, variant.chr_name, variant.chrom_start)
+        raise Intronic(
+            'Skipping intronic record for: %s from %s %s' %
+            repr_data,
+            repr_data
+        )
+
+    if convert_strands:
+        strand = '1' if record.strand == '+' else '0'
+    else:
+        strand = record.strand
+
+    if variant.chrom_strand != strand:
+        repr_data = (variant.refsnp_id, variant.chrom_strand, strand)
+        print(variant)
+        raise StrandMismatch(
+            'Skipping record for: %s - '
+            'incorrect strand %s in variant vs %s in record' %
+            repr_data,
+            repr_data
+        )
+
+    if convert_to_strand(record.ref_allele, record.strand) != variant.ref:
+        print(variant)
+        raise Mismatch(
+            'Reference mismatch for %s!' %
+            variant.refsnp_id,
+            convert_to_strand(record.ref_allele, record.strand),
+            variant.ref,
+        )
+
+    return record
+
+
+complement = {
+    'T': 'A',
+    'A': 'T',
+    'G': 'C',
+    'C': 'G'
+}
+
+
+def convert_to_strand(sequence, strand):
+    """If strand is -, return complementary sequence, else return sequence unchanged"""
+    if strand == '+':
+        return sequence
+    else:
+        return ''.join([complement[nuc] for nuc in sequence])
+
+
 def spidex_from_list(variants_list):
 
     tb = tabix.open(SPIDEX_LOCATION)
@@ -124,11 +204,16 @@ def spidex_from_list(variants_list):
                 variant.refsnp_id,
             ]
 
-            relevant_records = [
-                record
-                for record in records
-                if record.mut_allele == alt
-            ]
+            try:
+                relevant_records = choose_record(records, variant, alt, convert_strands=True)
+            except StrandMismatch as e:
+                print(e.message)
+                skipped_strand_mismatch.append(e.args[1])
+            except Intronic as e:
+                print(e.message)
+                skipped_intronic.append(e.args[1])
+            except Mismatch as e:
+                print(e.message)
 
             if not relevant_records:
                 to_test_online.append(
@@ -136,33 +221,6 @@ def spidex_from_list(variants_list):
                 )
 
             for record in relevant_records:
-
-                if record.ref_allele != variant.ref:
-                    print(
-                        'Reference mismatch for %s!' %
-                        variant.refsnp_id
-                    )
-                    continue
-                if record.location == 'intronic':
-                    repr_data = (variant.refsnp_id, variant.chr_name, variant.chrom_start)
-                    print(
-                        'Skipping intronic record for: %s from %s %s' %
-                        repr_data
-                    )
-                    skipped_intronic.append(repr_data)
-                    continue
-
-                strand = '1' if record.strand == '+' else '0'
-
-                if variant.chrom_strand != strand:
-                    repr_data = (variant.refsnp_id, variant.chrom_strand, strand)
-                    print(
-                        'Skipping record for: %s - '
-                        'incorrect strand %s in variant vs %s in record' %
-                        repr_data
-                    )
-                    skipped_strand_mismatch.append(repr_data)
-                    continue
 
                 spidex_raw_report.append([variant, alt, aaa_data, record])
 

@@ -1,12 +1,15 @@
 import tabix
 
+from tqdm import tqdm
+
 from analyses import reporter
-from analyses.gtex import GTEX_DATABASE
-from analyses.spidex import spidex_get_variant
-from expression_database import ExpressionDatabase
+from analyses.gtex import GTEX_DATABASE, GTEX_GENES
+from analyses.spidex import spidex_get_variant, choose_record, convert_to_strand, StrandMismatch
+from expression_database import ExpressionDatabase, ExpressedGenes
 from snp_parser import SPIDEX_LOCATION
 from variant import Variant
 from scipy.stats import pearsonr
+import numpy as np
 
 
 @reporter
@@ -28,19 +31,22 @@ def gtex_on_spidex(_):
         dpsi_zscore: This is the z-score of dpsi_max_tissue relative to the
                      distribution of dPSI that are due to common SNP.
 
+        ref_allele: The reference allele at the variant position (forward-strand)
+        mut_allele: The mutant allele at the variant position (forward-strand)
 
-    korelacja pearsona
-    wez wszystkie punkty
-    all spidex records
     """
 
     effect_sizes = []
     z_scores = []
 
     bdb = ExpressionDatabase(GTEX_DATABASE)
+    genes = ExpressedGenes(GTEX_GENES)
     tb = tabix.open(SPIDEX_LOCATION)
 
-    for mutation_code, tissues_and_slopes in bdb.items():
+    for mutation_code, data in tqdm(bdb.items(), total=len(bdb)):
+        if not data:
+            continue
+
         chrom, pos, ref, alt, _ = mutation_code
 
         # In spidex there are only SNPs (single!)
@@ -49,22 +55,45 @@ def gtex_on_spidex(_):
 
         pos = int(pos)
 
-        variant = Variant(chr_name=chrom, chrom_start=pos, chrom_end=pos)
+        for tissue, slope, gene in data:
+            name, chrom, start, end, strand = genes[gene]
 
-        if tissues_and_slopes:
+            # only those cis affected genes within given mutation lies
+            if not (pos >= int(start) and pos <= int(end)):
+                continue
+
+            variant = Variant(
+                chr_name=chrom,
+                chrom_start=pos,
+                chrom_end=pos,
+                chrom_strand=strand,
+                refsnp_id='unknown',
+                ref=convert_to_strand(ref, strand)
+            )
+
             records = spidex_get_variant(tb, variant)
-            record = None
-            for record in records:
-                if record.mut_allele == alt:
-                    break
+            try:
+                record = choose_record(records, variant, convert_to_strand(alt, strand), silent_intronic=True)
+            except StrandMismatch:
+                #if name != record.gene:
+                # print('!')
+                print('Strand mismatch %s %s %s ' % (chrom, pos, gene))
+                continue
 
-            if record and record.location == 'exonic':
+            # TODO: GTEx yields lots of genes in single locus. To be investigated;
 
-                for tissue, slope in tissues_and_slopes:
-                    effect_sizes.append(slope)
-                    z_scores.append(record.dpsi_zscore)
+            if record:
 
-                # print(chrom, pos, ref, alt)
-                # print(record)
+                effect_sizes.append(slope)
+                z_scores.append(float(record.dpsi_zscore))
 
-        pearsonr(effect_sizes, z_scores)
+            # print(chrom, pos, ref, alt)
+            # print(record)
+
+    effect_sizes = np.array(effect_sizes)
+    z_scores = np.array(z_scores)
+
+    # "The null hypothesis is that the two variables are uncorrelated."
+    pearson_coef, p_value = pearsonr(effect_sizes, z_scores)
+
+    print(pearson_coef, p_value)

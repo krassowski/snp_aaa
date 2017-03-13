@@ -4,11 +4,12 @@ from analyses import report, reporter
 from commands import command
 from snp_parser import select_poly_a_related_variants
 from snp_parser import all_poly_a_variants
-from expression_database import ExpressionDatabase
+from expression_database import ExpressionDatabase, ExpressedGenes, import_expressed_genes
 from expression_database import import_expression_data
 
 
-GTEX_DATABASE = 'expression_slope_in_tissues_by_mutationa.db'
+GTEX_DATABASE = 'expression_slope_in_tissues_by_mutation_old.db'
+GTEX_GENES = 'expressed_genes.db'
 
 
 @command('--reload_gtex', action='store_true')
@@ -18,7 +19,17 @@ def reload_gtex(value, args):
 
     print('Reloading GTEx expression data:')
 
+    bdb = ExpressedGenes(GTEX_GENES)
+    bdb.reset()
+
+    import_expressed_genes(
+        bdb,
+        path='GTEx_Analysis_v6p_eQTL',
+        suffix='_Analysis.v6p.egenes.txt.gz'
+    )
+
     bdb = ExpressionDatabase(GTEX_DATABASE)
+    bdb.reset()
 
     import_expression_data(
         bdb,

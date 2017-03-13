@@ -249,20 +249,21 @@ def create_dna_db():
 
 def main(args):
 
-    snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
-    biomart_server = BiomartServer(args.biomart)
+    if not args.no_variants:
+        snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
+        biomart_server = BiomartServer(args.biomart)
 
-    show_functions = {
-        'databases': biomart_server.show_databases,
-        'datasets': biomart_server.show_datasets,
-        'filters': snp_dataset.show_filters,
-        'attributes': snp_dataset.show_attributes,
-        'attributes_by_page': snp_dataset.show_attributes_by_page,
-    }
+        show_functions = {
+            'databases': biomart_server.show_databases,
+            'datasets': biomart_server.show_datasets,
+            'filters': snp_dataset.show_filters,
+            'attributes': snp_dataset.show_attributes,
+            'attributes_by_page': snp_dataset.show_attributes_by_page,
+        }
 
-    if args.show:
-        func = show_functions[args.show]
-        func()
+        if args.show:
+            func = show_functions[args.show]
+            func()
 
     execute_commands(args)
 

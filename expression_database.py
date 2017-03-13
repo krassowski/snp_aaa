@@ -1,4 +1,4 @@
-from berkley_hash_set import BerkleyHashSet
+from berkley_hash_set import BerkleyHashSet, BerkleyHashList
 import gzip
 from tqdm import tqdm
 import os
@@ -53,6 +53,24 @@ TISSUES_LIST = [
 ]
 
 
+TISSUES_LIST = ['Adipose_Subcutaneous']
+
+
+class ExpressedGenes(BerkleyHashList):
+
+    def __getitem__(self, gene_id):
+        value = super(ExpressedGenes, self).__getitem__(
+            gene_id
+        )
+        return value
+
+    def __setitem__(self, gene_id, value):
+
+        return super(ExpressedGenes, self).__setitem__(
+            gene_id, value
+        )
+
+
 class ExpressionDatabase(BerkleyHashSet):
 
     def get_by_mutation(self, mutation):
@@ -84,9 +102,9 @@ class ExpressionDatabase(BerkleyHashSet):
     def items(self):
         for key, data in super(ExpressionDatabase, self).items():
             yield key.split('_'), [
-                (t, float(e))
+                (t, float(e), g)
                 for datum in data
-                for (t, e) in [datum.split(',')]
+                for (t, e, g) in [datum.split(',')]
             ]
 
     def __getitem__(self, mutation_key):
@@ -100,6 +118,58 @@ class ExpressionDatabase(BerkleyHashSet):
         return super(ExpressionDatabase, self).__setitem__(
             mutation_key, value
         )
+
+
+def expression_file_paths(tissues_list, path, suffix):
+    for tissue_name in tissues_list:
+        file_name = tissue_name + suffix
+        file_path = os.path.join(path, file_name)
+        yield file_path
+
+
+def count_all(tissues_list, path, suffix):
+    count = 0
+    for file_path in expression_file_paths(tissues_list, path, suffix):
+        with gzip.open(file_path) as file_object:
+            count += sum(1 for _ in file_object)
+
+    return count
+
+
+def import_expressed_genes(
+        bdb,
+        tissues_list=TISSUES_LIST,
+        path='GTEx_Analysis_v6p_eQTL',
+        suffix='_Analysis.v6p.egenes.txt.gz'
+):
+    print('Importing expressed genes:')
+
+    count = count_all(tissues_list, path, suffix)
+
+    with tqdm(total=count) as progress:
+
+        for tissue_name in tissues_list:
+            file_name = tissue_name + suffix
+            file_path = os.path.join(path, file_name)
+            print('Loading', file_name)
+
+            with gzip.open(file_path) as file_object:
+                # skip header
+                next(file_object)
+
+                for line in file_object:
+                    data = line.split()
+                    """
+                    gene_id: (
+                        gene_name,
+                        gene_chr,
+                        gene_start,
+                        gene_end,
+                        strand,
+                    )
+                    """
+                    bdb[data[0]].extend(data[1:6])
+                    progress.update(1)
 
 
 def import_expression_data(
@@ -117,28 +187,34 @@ def import_expression_data(
     """
     print('Importing expression data:')
 
-    for tissue_name in tissues_list:
-        file_name = tissue_name + suffix
-        file_path = os.path.join(path, file_name)
-        print('Loading', file_name)
+    count = count_all(tissues_list, path, suffix)
 
-        with gzip.open(file_path) as file_object:
-            header = {
-                name: position
-                for position, name in enumerate(
-                    next(file_object).split()
-                )
-            }
-            slope_pos = header['slope']
-            variant_id_pos = header['variant_id']
-            get_variant = itemgetter(variant_id_pos)
-            get_slope = itemgetter(slope_pos)
+    with tqdm(total=count) as progress:
 
-            for line in tqdm(file_object):
-                data = line.split()
-                variant_id = get_variant(data)
-                slope = get_slope(data)
-                bdb[variant_id].add(tissue_name + ',' + slope)
+        for tissue_name in tissues_list:
+            file_name = tissue_name + suffix
+            file_path = os.path.join(path, file_name)
+            print('Loading', file_name)
+
+            with gzip.open(file_path) as file_object:
+                header = {
+                    name: position
+                    for position, name in enumerate(
+                        next(file_object).split()
+                    )
+                }
+                slope_pos = header['slope']
+                gene_id_pos = header['gene_id']
+                variant_id_pos = header['variant_id']
+
+                get_variant = itemgetter(variant_id_pos)
+                get_gene = itemgetter(gene_id_pos)
+                get_slope = itemgetter(slope_pos)
+
+                for line in file_object:
+                    data = line.split()
+                    bdb[get_variant(data)].add(tissue_name + ',' + get_slope(data) + ',' + get_gene(data))
+                    progress.update(1)
 
 
 """For tests use:
