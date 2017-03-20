@@ -1,7 +1,57 @@
-# Pipeline for SNP analysis with regard to influence of poly(A) tracks on protein creation in Human #
+# Pipeline for SNP analysis with emphasis on influence of poly(A) tracks on protein expression in Human #
 
-The repository contains multiple Python modules, useful when analyzing data from Ensembl, Cosmic, NCBI and other services while searching for information about effect of particular SNPs. Most of the modules are written in Python 2.7.4, some uses Python 3.4. The major part of the analysis revolves around data from [PATACSDB](https://peerj.com/articles/cs-45/) and expands on the research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154). The core module for analysis of somatic SNPs (coming mostly from COSMIC) is called `snp_parser`. Other, started but unfinished module `gte_parser` was intended to perform analysis on all mutations in protein-coding DNA sequences with respect to expression level taken from [GTEx portal](http://www.gtexportal.org/home/).
+The repository contains multiple Python modules, useful when analyzing data from Ensembl, Cosmic, NCBI and other services while searching for information about effect of particular SNPs.
+The pipeline is written in Python 2.7.
+The major part of the analysis revolves around data from [PATACSDB](https://peerj.com/articles/cs-45/) and expands the research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154).
 
+### Analyses
+
+#### Poly(A)
+
+Aim: Select only poly(A) related variants (such that make the track longer, shorter or does not change its length).
+
+Data source: Ensembl's biomart (which incorporates data from NCBI and Cosmic too).
+
+#### CNV vs poly(A)
+
+Aim: Compare aggregations of mutations causing lengthening/shortening of poly(A) tracks and net effect of such groups with copy number expression of relevant region as reported by Cosmic.
+
+Data sources: Cosmic v79
+
+Genome: GRCh38 (Ensembl 87)
+
+#### Expression vs poly(A)
+
+
+Aim: Compare length / lengthening of poly(A) tracks by a variant with variant's effect sizes as defined in GTEx.
+
+Data source: GTEx
+
+Genome: GRCh37 (Ensembl 75)
+
+Takeaway: not enough poly(A) related variants in GTEx as for 2017 to perform this analysis.
+
+#### SPIDEX vs poly(A)
+
+Aim: Compare length / lengthening of poly(A) tracks by a variant with its predicted impact on splicing inclusion index.
+
+Data source: SPIDEX
+
+Genome: GRCh37 (Ensembl 75)
+
+##### ZCRB1:c.411G>A
+
+Aim: As above, but taking into account well tested mutation with known poly(A) track shortening effect.
+
+Data source: Genomic coordinates from Cosmic
+
+Genome: GRCh37 (Ensembl 75)
+
+#### GTEx vs SPIDEX
+
+Aim: Verification of an assumption about extended predictive capabilities of SPIDEX database.
+
+Genome: GRCh37 (Ensembl 75)
 
 ## What is the workflow of particular modules? ##
 
@@ -12,13 +62,12 @@ The primary goal of this analysis was to create an association table showing rel
 * expression of genes which might be affected by particular SNPs, and
 * introduction, removal or change in length of poly(A) tracks in DNA sequence, caused by these SNPs.
 
-The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1 (sequence of twelve subsequent adenines with one mismatch allowed). The code responsible for poly(A) detection is located in `poly_a` module.
 
 #### Data retrieval
 
 * Variants' names were obtained from Ensembl with use of Biomart API, with restrict to hsapiens_snp_som dataset (somatic mutations only),
 * the variant's alleles data were taken from VCF files from three sources: [Ensembl](ftp://ftp.ensembl.org/pub/release-87/variation/vcf/homo_sapiens/), [COSMIC](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/VCF/CosmicCodingMuts.vcf.gz) and [NCBI](ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b146_GRCh38p2/VCF/00-All.vcf.gz)  [tabix](ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b146_GRCh38p2/VCF/00-All.vcf.gz.tbi),
-* gene sequences (also from Ensembl) was downloaded as [chromosome-grouped DNA](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/dna/), [CDS](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cds/) and [cDNA](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cdna/) FASTA files.
+* gene sequences (also from Ensembl) were downloaded as [chromosome-grouped DNA](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/dna/), [CDS](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cds/) and [cDNA](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cdna/) FASTA files.
 * from COSMIC following data were downloaded:
     * [gene expression level 3 data](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/CosmicCompleteGeneExpression.tsv.gz) - from the TCGA portal
     * [all copy number abberations](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/CosmicCompleteCNA.tsv.gz) - used to map gene expression from samples to gene transcripts
@@ -27,31 +76,22 @@ The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1
 
 The analysed variants set has been limited to: synonymous, stop gained, coding sequence and missense variants.  Only SNPs from genes present in PATACSDB (Homo sapiens dataset) were downloaded (so we had guarantee of at least one poly(A) track presence). I was not able to get the alleles from Ensembl's biomart as it is not providing the alleles of variants from COSMIC database at the time of writing (and those were crucial for the analysis!). From COSMIC genes cDNA sequences only headers were used in order to map the names of transcripts between Ensembl and COSMIC databases (worth noting, the distribution of data between transcripts from COSMIC were later in the analysis treated as uninformative, due to purported lack of proper curation i.e. there are serious premises multiple transcript-specific entries were nonetheless assigned to canonical transcript when incorporated to the COSMIC database).
 
-Versions: all the data come from GRCh38 and COSMIC v79, Ensembl 87.
 
 #### General workflow
 
+##### Discovery of Poly(A) related variants
+
+SNP variants are fetched (hsapiens_snp) from Ensembl's biomart from genes such that poly(A) is guaranteed to occur (PATACSDB, human).
+
+The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1 (sequence of twelve subsequent adenines with one mismatch allowed). The code responsible for poly(A) detection is located in `poly_a` module.
+
+##### Filling up gaps (getting more data about variants)
 Variants retrieved from biomart and populated with additional data from VCF files are sorted by genes. Later in surroundings of each variant the search for poly(A) is performed - both in original and mutated sequence.
+
 
 #### Future development ideas
 
 It would be beneficial to split the final association table to separate tables for different variant consequences (synonymous, stop gained, coding sequence and missense) and even to include less restrictive filters on consequences (i.e. take all variants) but then have multiple tables showing associations with respect to consequences of variants. Some types of variant's consequences might be used as control - for example we are expecting to find no correlation in UTR related variants.
-
-### mRNA expression levels analysis - GTEx ###
-
-#### The workflow idea
-
-1. Restrict analyse data to all genes where poly(A) is guaranteed to occur (PATACSDB, human)
-2. Fetch all SNP variants (hsapiens_snp) from Ensembl's biomart, restrict to variants from dbSNP (as other variants are not present in GTEx)
-3. With use of tuples: (snp, ensemble_gene_id) mine the GTEx database saving average level of expression associated with particular tuple GTEx_Analysis_v6_eQTLs.tar.gz, spiting the analysis between distinct tissues (as reported by GTEx)
-4. Prepare and analyse accumulated data
-
-### What already has been tried
-
-Using gbff files from NCBI in order to gather variants does not look as the best idea - there are a lot of inconsistencies and edge cases to think about.
-Parallel processing of GTEx data might be useful when analyzing the GTEx data (divided by tissues), some related code is present in the `gte_parser` file.
-The file with all required data is called `GTEx_Analysis_V6_eQTLs.tar.gz` and is available to download from GTEx portal after [registration](http://www.gtexportal.org/home/register).
-
 
 ##  Summary of set up
 
