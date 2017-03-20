@@ -52,9 +52,14 @@ def draw_plot(plot):
     if DRAW_PLOTS:
         from matplotlib import axes
 
+        seaborns = [
+            sns.axisgrid.JointGrid,
+            sns.axisgrid.FacetGrid
+        ]
+
         if type(plot) is ggplot:
             plot.draw().waitforbuttonpress()
-        elif type(plot) is sns.axisgrid.FacetGrid:
+        elif type(plot) in seaborns:
             plot.fig.show()
         elif type(plot) is axes.Subplot:
             plot.figure.show()
