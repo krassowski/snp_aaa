@@ -99,31 +99,47 @@ class Mismatch(Exception):
 class Intronic(Exception):
     pass
 
+from numba import jit
 
-def choose_record(records, variant, alt, silent_intronic=False, convert_strands=False):
 
-    relevant_records = [
-        record
-        for record in records
-        if convert_to_strand(record.mut_allele, record.strand) in alt
-    ]
+@jit
+def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):
+    """
+    location: (None, 'intronic', 'exonic') is given, ony variants from this location will be returned;
+    strict: should exceptions be raised on anything suspicious or just warning displayed?
+    """
+
+    relevant_records = []
+
+    for record in records:
+        if convert_to_strand(record.mut_allele, record.strand) in alt:
+            relevant_records.append(record)
 
     if not relevant_records:
         return []
 
-    assert len(relevant_records) == 1
+    if len(relevant_records) != 1:
+        message = 'Too many records given!'
+        if strict:
+            raise ValueError(message)
+        else:
+            print(message)
+            print(relevant_records)
 
     record = relevant_records[0]
 
-    if record.location == 'intronic':
-        if silent_intronic:
-            return []
+    if location and record.location == location:
         repr_data = (variant.refsnp_id, variant.chr_name, variant.chrom_start)
-        raise Intronic(
+
+        message = (
             'Skipping intronic record for: %s from %s %s' %
             repr_data,
-            repr_data
         )
+        if strict:
+            raise Intronic(message, repr_data)
+        else:
+            print(message)
+            return []
 
     if convert_strands:
         strand = '1' if record.strand == '+' else '0'
@@ -132,22 +148,31 @@ def choose_record(records, variant, alt, silent_intronic=False, convert_strands=
 
     if variant.chrom_strand != strand:
         repr_data = (variant.refsnp_id, variant.chrom_strand, strand)
-        print(variant)
-        raise StrandMismatch(
+        message = (
             'Skipping record for: %s - '
             'incorrect strand %s in variant vs %s in record' %
-            repr_data,
             repr_data
         )
+        if strict:
+            raise StrandMismatch(message, repr_data, variant)
+        else:
+            print(message)
+            print(variant)
+            return []
 
     if convert_to_strand(record.ref_allele, record.strand) != variant.ref:
-        print(variant)
-        raise Mismatch(
-            'Reference mismatch for %s!' %
-            variant.refsnp_id,
-            convert_to_strand(record.ref_allele, record.strand),
-            variant.ref,
-        )
+        message = 'Reference mismatch for %s!' % variant.refsnp_id
+        if strict:
+            raise Mismatch(
+                message,
+                convert_to_strand(record.ref_allele, record.strand),
+                variant.ref,
+                variant
+            )
+        else:
+            print(message)
+            print(variant)
+            return []
 
     return record
 

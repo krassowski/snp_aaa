@@ -8,7 +8,7 @@ from expression_database import ExpressionDatabase, ExpressedGenes, import_expre
 from expression_database import import_expression_data
 
 
-GTEX_DATABASE = 'expression_slope_in_tissues_by_mutation_old.db'
+GTEX_DATABASE = 'expression_slope_in_tissues_by_mutation.db'
 GTEX_GENES = 'expressed_genes.db'
 
 

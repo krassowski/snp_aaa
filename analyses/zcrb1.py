@@ -34,7 +34,7 @@ def zcrb1(_):
     )
 
     records = spidex_get_variant(tb, variant)
-    record = choose_record(records, variant, alt)
+    record = choose_record(records, variant, alt, location='exonic', strict=True)
 
     assert record
 

@@ -3,6 +3,11 @@ import gzip
 from tqdm import tqdm
 import os
 from operator import itemgetter
+from numba import jit
+
+DEFAULT_PATH = 'GTEx_Analysis_v6p_eQTL'
+DEFAULT_SUFFIX = '_Analysis.v6p.signif_snpgene_pairs.txt.gz'
+DEFAULT_GENE_SUFFIX ='_Analysis.v6p.egenes.txt.gz'
 
 
 TISSUES_LIST = [
@@ -51,9 +56,6 @@ TISSUES_LIST = [
     'Vagina',
     'Whole_Blood'
 ]
-
-
-TISSUES_LIST = ['Adipose_Subcutaneous']
 
 
 class ExpressedGenes(BerkleyHashList):
@@ -121,13 +123,14 @@ class ExpressionDatabase(BerkleyHashSet):
 
 
 def expression_file_paths(tissues_list, path, suffix):
+    print(tissues_list, suffix)
     for tissue_name in tissues_list:
         file_name = tissue_name + suffix
         file_path = os.path.join(path, file_name)
         yield file_path
 
 
-def count_all(tissues_list, path, suffix):
+def count_all(tissues_list, path=DEFAULT_PATH, suffix=DEFAULT_SUFFIX):
     count = 0
     for file_path in expression_file_paths(tissues_list, path, suffix):
         with gzip.open(file_path) as file_object:
@@ -139,8 +142,8 @@ def count_all(tissues_list, path, suffix):
 def import_expressed_genes(
         bdb,
         tissues_list=TISSUES_LIST,
-        path='GTEx_Analysis_v6p_eQTL',
-        suffix='_Analysis.v6p.egenes.txt.gz'
+        path=DEFAULT_PATH,
+        suffix=DEFAULT_GENE_SUFFIX
 ):
     print('Importing expressed genes:')
 
@@ -168,15 +171,47 @@ def import_expressed_genes(
                         strand,
                     )
                     """
-                    bdb[data[0]].extend(data[1:6])
+                    if not bdb[data[0]]:
+                        bdb[data[0]].extend(data[1:6])
+                    else:
+                        assert bdb[data[0]] == data[1:6]
+
                     progress.update(1)
+
+
+@jit
+def iterate_over_expression(
+    tissues_list=TISSUES_LIST,
+    path=DEFAULT_PATH,
+    suffix=DEFAULT_SUFFIX
+):
+    for tissue_name in tissues_list:
+        file_name = tissue_name + suffix
+        file_path = os.path.join(path, file_name)
+        print('Loading', file_name)
+
+        file_object = gzip.open(file_path)
+
+        header_line = next(file_object)
+        header = dict()
+        for position, name in enumerate(header_line.split()):
+            header[name] = position
+
+        slope_pos = header['slope']
+        gene_id_pos = header['gene_id']
+        variant_id_pos = header['variant_id']
+
+        for line in file_object:
+            data = line.split()
+            yield (data[variant_id_pos], tissue_name, data[slope_pos], data[gene_id_pos])
+        file_object.close()
 
 
 def import_expression_data(
     bdb,
     tissues_list=TISSUES_LIST,
-    path='GTEx_Analysis_v6p_eQTL',
-    suffix='_Analysis.v6p.signif_snpgene_pairs.txt.gz'
+    path=DEFAULT_PATH,
+    suffix=DEFAULT_SUFFIX
 ):
     """Import expression data from GTEx portal files "signif_snpgene_pairs"
     into given database
@@ -189,32 +224,11 @@ def import_expression_data(
 
     count = count_all(tissues_list, path, suffix)
 
-    with tqdm(total=count) as progress:
+    expression_data = iterate_over_expression(tissues_list, path, suffix)
 
-        for tissue_name in tissues_list:
-            file_name = tissue_name + suffix
-            file_path = os.path.join(path, file_name)
-            print('Loading', file_name)
+    for expr in tqdm(expression_data, total=count):
+        bdb[expr[0]].add(','.join(expr[1:]))
 
-            with gzip.open(file_path) as file_object:
-                header = {
-                    name: position
-                    for position, name in enumerate(
-                        next(file_object).split()
-                    )
-                }
-                slope_pos = header['slope']
-                gene_id_pos = header['gene_id']
-                variant_id_pos = header['variant_id']
-
-                get_variant = itemgetter(variant_id_pos)
-                get_gene = itemgetter(gene_id_pos)
-                get_slope = itemgetter(slope_pos)
-
-                for line in file_object:
-                    data = line.split()
-                    bdb[get_variant(data)].add(tissue_name + ',' + get_slope(data) + ',' + get_gene(data))
-                    progress.update(1)
 
 
 """For tests use:
