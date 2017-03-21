@@ -19,6 +19,7 @@ from cache import cacheable
 from fasta_sequence_db import SequenceDB, FastSequenceDB
 from commands import execute_commands
 from commands import append_commands
+from commands import append_subparsers
 
 VERBOSITY_LEVEL = 0
 
@@ -85,6 +86,7 @@ def perform_analyses(args):
 
 def create_arg_parser():
     import argparse
+    from commands import ArgumentParserPlus
     from analyses import REPORTERS
     from variant_sources import VARIANTS_GETTERS
 
@@ -93,14 +95,14 @@ def create_arg_parser():
         'attributes_by_page',
     ]
 
-    parser = argparse.ArgumentParser(description=(
+    parser = ArgumentParserPlus(description=(
         'Retrieve all data about variants from genes belonging to a predefined '
         'or user-chosen list of genes (see --genes_list) [including list of all '
         'human genes] and perform one or multiple of available analyses '
         '(see --report).\n'
         'Once variants are downloaded and pre-parsed, they will be stored '
         'in cache until another list of variants will be specified with '
-        'options: --download_variants --parse_variants.'
+        'options: --download_variants.'
     ))
     parser.add_argument(
         '--report',
@@ -160,6 +162,7 @@ def create_arg_parser():
         help='For debugging only.'
     )
     append_commands(parser)
+    append_subparsers(parser)
 
     return parser
 

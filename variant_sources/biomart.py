@@ -5,6 +5,7 @@ from tqdm import trange
 
 from biomart_data import BiomartData
 from commands import command
+from commands import SourceSubparser
 from snp_parser import BiomartDataset
 from cache import cacheable
 from variant import Variant, BiomartVariant
@@ -56,22 +57,26 @@ def gene_names_from_patacsdb_csv(limit_to=None):
 
     return list(genes)
 
+biomart_args = SourceSubparser(
+    'biomart',
+    help='Arguments for biomart arguments fetching'
+)
 
-command(
+biomart_args.add_command(
     '--dataset',
     type=str,
     help='name of biomart dataset to be used, eg. hsapiens_snp',
     default='hsapiens_snp_som'
-)()
+)
 
-command(
+biomart_args.add_command(
     '--filters',
     type=json.loads,
     default={},
     help='Additional variants filters to be used when querying biomart'
-)()
+)
 
-command(
+biomart_args.add_command(
     '--genes_list',
     nargs='+',
     type=str,
@@ -81,9 +86,9 @@ command(
         'available analyses. By default all human genes from PATACSDB '
         'will be used. To use all human genes specify "all_human_genes".'
     )
-)()
+)
 
-command(
+biomart_args.add_command(
     '--biomart',
     type=str,
     help=(
@@ -94,10 +99,10 @@ command(
         DEFAULT_BIOMART_URL
     ),
     default=DEFAULT_BIOMART_URL
-)()
+)
 
 
-@command(
+@biomart_args.command(
     '--step_size',
     '-s',
     type=int,

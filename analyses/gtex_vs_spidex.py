@@ -73,44 +73,54 @@ def gtex_on_spidex(_):
 
     count = count_all(tissues_list)
 
-    for mutation_code, tissue, slope, gene in tqdm(iterate_over_expression(tissues_list), total=count):
-        chrom, pos, ref, alt, _ = mutation_code.split('_')
-
-        # In spidex there are only SNPs (single!)
-        if len(ref) != 1 or len(alt) != 1:
-            continue
-
-        pos = int(pos)
-
-        if not genes[gene]:
-            print('gene %s not present in data' % gene)
-            continue
-        name, chrom, start, end, strand = genes[gene]
-
-        # only genes overlapping with given mutation
-        if not (int(start) <= pos <= int(end)):
-            continue
-
-        variant = Variant(
-            chr_name=chrom,
-            chrom_start=pos,
-            chrom_end=pos,
-            chrom_strand=strand,
-            refsnp_id='unknown',
-            ref=convert_to_strand(ref, strand)
+    with open('gtex_vs_spidex.csv', 'w') as f:
+        f.write(
+            'chrom,pos,ref,alt,gene_name,gene_start,gene_end,gene_strand,'
+            'gtex_slope,gtex_tissue,spidex_dpsi_zscore,spidex_dpsi_max_tissue\n'
         )
+        for mutation_code, tissue, slope, gene in tqdm(iterate_over_expression(tissues_list), total=count):
+            chrom, pos, ref, alt, _ = mutation_code.split('_')
 
-        records = spidex_get_variant(tb, variant)
-        record = choose_record(records, variant, convert_to_strand(alt, strand), strict=False)
-
-        if record:
-            if name != record.gene:
-                print('Gene name mismatch %s %s!' % (name, record.gene))
+            # In spidex there are only SNPs (single!)
+            if len(ref) != 1 or len(alt) != 1:
                 continue
 
-            effect_sizes.append(float(slope))
-            #z_scores.append(float(record.dpsi_max_tissue))
-            z_scores.append(float(record.dpsi_zscore))
+            pos = int(pos)
+
+            if not genes[gene]:
+                print('gene %s not present in data' % gene)
+                continue
+            name, chrom, start, end, strand = genes[gene]
+
+            # only genes overlapping with given mutation
+            if not (int(start) <= pos <= int(end)):
+                continue
+
+            variant = Variant(
+                chr_name=chrom,
+                chrom_start=pos,
+                chrom_end=pos,
+                chrom_strand=strand,
+                refsnp_id='-',
+                ref=convert_to_strand(ref, strand)
+            )
+
+            records = spidex_get_variant(tb, variant)
+            record = choose_record(records, variant, convert_to_strand(alt, strand), strict=False)
+
+            if record:
+                if name != record.gene:
+                    print('Gene name mismatch %s %s!' % (name, record.gene))
+                    continue
+
+                f.write(','.join(map(str, [
+                    chrom, pos, convert_to_strand(ref, strand),
+                    convert_to_strand(alt,strand), name, start, end, strand,
+                    slope, tissue, record.dpsi_zscore, record.dpsi_max_tissue
+                ])) + '\n')
+                effect_sizes.append(float(slope))
+                #z_scores.append(float(record.dpsi_max_tissue))
+                z_scores.append(float(record.dpsi_zscore))
 
     print('Found %s pairs gtex-spidex' % len(effect_sizes))
 
@@ -128,6 +138,6 @@ def gtex_on_spidex(_):
 
     print(pearson_coef, p_value)
 
-    import code
-    code.interact(local=locals())
+    #import code
+    #code.interact(local=locals())
 
