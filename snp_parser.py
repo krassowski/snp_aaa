@@ -17,7 +17,7 @@ from tqdm import tqdm
 from biomart_data import BiomartDataset
 from cache import cacheable
 from fasta_sequence_db import SequenceDB, FastSequenceDB
-from commands import execute_commands
+from commands import execute_commands, execute_subparser_commands
 from commands import append_commands
 from commands import append_subparsers
 
@@ -39,6 +39,13 @@ vcf_locations = {
     GRCH_SUBVERSION + '/00-All.vcf.gz',
     'ensembl': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz'
 }
+
+
+try:
+    from numba import jit
+except ImportError:
+    print('Install numba to speed up execution')
+    jit = lambda x: x
 
 
 def select_poly_a_related_variants(variants):
@@ -85,7 +92,6 @@ def perform_analyses(args):
 
 
 def create_arg_parser():
-    import argparse
     from commands import ArgumentParserPlus
     from analyses import REPORTERS
     from variant_sources import VARIANTS_GETTERS
@@ -269,6 +275,7 @@ def main(args):
             func()
 
     execute_commands(args)
+    execute_subparser_commands(args)
 
     # 1. Download and parse
     if args.download_variants:

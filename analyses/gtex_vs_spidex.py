@@ -3,8 +3,7 @@ import tabix
 from tqdm import tqdm
 
 from analyses import reporter
-from analyses.gtex import GTEX_GENES
-from analyses.spidex import spidex_get_variant, choose_record, convert_to_strand, StrandMismatch
+from analyses.spidex import spidex_get_variant, choose_record, convert_to_strand
 from expression_database import ExpressedGenes, iterate_over_expression, count_all, TISSUES_LIST, \
     import_expressed_genes
 from snp_parser import SPIDEX_LOCATION
@@ -15,7 +14,7 @@ import numpy as np
 
 def create_path_for_genes_db(tissues):
     """Create almost-certainly unique path for a database which will contain
-    information about genes having variant-egene pairs in given tisssues."""
+    information about genes having variant-egene pairs in given tissues."""
 
     from hashlib import sha224
 

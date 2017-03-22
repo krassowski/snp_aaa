@@ -104,8 +104,11 @@ class Mismatch(Exception):
 class Intronic(Exception):
     pass
 
-from numba import jit
-
+try:
+    from numba import jit
+except ImportError:
+    print('Install numba to speed up spidex analysis')
+    jit = lambda x: x
 
 @jit
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):

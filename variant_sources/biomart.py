@@ -266,7 +266,7 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
     return variants_by_gene
 
 
-@command('--show_some_variant', action='store_true')
+@biomart_args.command('--show_some_variant', action='store_true')
 def show_some_variant(value, args):
     if not value:
         return
