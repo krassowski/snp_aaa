@@ -1,14 +1,18 @@
 from __future__ import print_function
 from collections import OrderedDict
+
+from tqdm import tqdm
+
 from analyses import report, reporter
+from snp_parser import jit
 from snp_parser import all_poly_a_variants
 from snp_parser import SPIDEX_LOCATION
 from cache import cacheable
 import tabix
 from recordclass import recordclass
+import numpy as np
 from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set(color_codes=True)
@@ -104,11 +108,6 @@ class Mismatch(Exception):
 class Intronic(Exception):
     pass
 
-try:
-    from numba import jit
-except ImportError:
-    print('Install numba to speed up spidex analysis')
-    jit = lambda x: x
 
 @jit
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):
@@ -484,13 +483,25 @@ def all_variants_vs_spidex(variants_by_gene):
 @cacheable
 def get_all_zscore():
     """Get all dpsi_zscore from spidex database."""
+    return _get_all_zscores()
+
+
+@jit
+def _get_all_zscores():
+    import gzip
     zscores = []
 
-    with open(SPIDEX_LOCATION) as f:
-        for line in f:
-            record = SpidexRecord(*line.split('\t'))
-            print(record)
+    print('Counting...')
 
+    with gzip.open(SPIDEX_LOCATION) as file_object:
+        count = sum(1 for _ in file_object)
+
+    print('Loading...')
+
+    with gzip.open(SPIDEX_LOCATION) as f:
+        header = next(f)
+        for line in tqdm(f, total=count-1):
+            record = SpidexRecord(*line.rstrip('\n').split('\t'))
             zscores.append(record.dpsi_zscore)
 
     return zscores

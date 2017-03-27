@@ -159,7 +159,7 @@ class VariantCallFormatParser(object):
         one base represented in their Strings"
 
         Returns:
-            tuple: (position, reference alelle, alternative alleles)
+            tuple: (position, reference allele, alternative alleles)
         """
         if not vcf_data:
             raise ParsingError('Lack of VCF data.')

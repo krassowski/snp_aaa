@@ -71,7 +71,9 @@ def clinvar_variants(args):
             chrom_start=row.pos,
             chrom_end=row.pos+len(row.alt)-len(row.ref),
             ref=row.pos,
-            refsnp_id=row.hgvs_p
+            refsnp_id=row.hgvs_p,
+            alts=(row.alt,),
+            gene=gene
         )
         variants_by_gene[gene].append(v)
 

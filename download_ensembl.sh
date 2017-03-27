@@ -29,6 +29,7 @@ else
     then
         wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
     else
+        echo "Indexing vcf.gz file ..."
         ../../vcf_to_tabix.sh Homo_sapiens.vcf.gz
         mv Homo_sapiens.vcf.gz Homo_sapiens.vcf.gz.unsorted
         mv Homo_sapiens.vcf.gz.bgz Homo_sapiens.vcf.gz

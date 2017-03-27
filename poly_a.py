@@ -29,22 +29,22 @@ def poly_a(seq, start, end, minimal_length=12,
         coords = []
         for d in [-1, 1]:
             pos = starting_pos
-            local_mismaches = 0
+            local_mismatches = 0
 
             while mismatches <= allowed_mismatches:
-                # print(d, pos, seq[pos], mismatches, local_mismaches)
+                # print(d, pos, seq[pos], mismatches, local_mismatches)
                 match = seq[pos] == 'A'
                 length += match
                 mismatches += not match
 
                 pos += d
                 if match:
-                    local_mismaches = 0
+                    local_mismatches = 0
                 else:
-                    local_mismaches += 1
+                    local_mismatches += 1
             else:
-                pos -= d * (local_mismaches + 1)
-                mismatches -= (local_mismaches)
+                pos -= d * (local_mismatches + 1)
+                mismatches -= (local_mismatches)
             coords.append(pos)
 
         if length >= best_match:

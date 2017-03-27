@@ -137,6 +137,9 @@ class Variant(SlottedObject):
 
     def __init__(self, **kwargs):
 
+        for attr in self.attributes:
+            setattr(self, attr, None)
+
         self.affected_transcripts = set()
 
         super(Variant, self).__init__(**kwargs)

@@ -5,11 +5,11 @@ from __future__ import print_function
 
 import os
 import sys
+import traceback
 
 biomart_fork_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
 sys.path.insert(0, biomart_fork_path)
 
-import traceback
 
 from biomart import BiomartServer
 from tqdm import tqdm
@@ -50,9 +50,11 @@ except ImportError:
 
 def select_poly_a_related_variants(variants):
     """Return list oof variants occurring in a poly(A) track and variants which will create poly(A) track."""
+    from parse_variants import analyze_poly_a
+
     return [
         variant
-        for variant in variants
+        for variant in map(analyze_poly_a, variants)
         if any([
             data.has or data.will_have
             for data in variant.poly_aaa.values()
@@ -108,7 +110,7 @@ def create_arg_parser():
         '(see --report).\n'
         'Once variants are downloaded and pre-parsed, they will be stored '
         'in cache until another list of variants will be specified with '
-        'options: --download_variants.'
+        'options: --variants.'
     ))
     parser.add_argument(
         '--report',
@@ -131,7 +133,6 @@ def create_arg_parser():
     # )
 
     parser.add_argument(
-        '-v',
         '--verbose',
         action='store_true',
         help='increase output verbosity'
@@ -143,7 +144,7 @@ def create_arg_parser():
         help='Use to run standalone analysis without feeding it with variants'
     )
     parser.add_argument(
-        '-d', '--download_variants',
+        '-v', '--variants',
         choices=VARIANTS_GETTERS.keys(),
         default=None,
         help='How should the variants be retrieved? Choices are: ' +
@@ -258,7 +259,7 @@ def create_dna_db():
 
 def main(args):
 
-    if not args.no_variants:
+    if args.variants == 'biomart':
         snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
         biomart_server = BiomartServer(args.biomart)
 
@@ -278,12 +279,12 @@ def main(args):
     execute_subparser_commands(args)
 
     # 1. Download and parse
-    if args.download_variants:
+    if args.variants:
 
-        download_method = args.download_variants
+        method = args.variants
 
         from variant_sources import VARIANTS_GETTERS
-        raw_variants_by_gene = VARIANTS_GETTERS[download_method](args)
+        raw_variants_by_gene = VARIANTS_GETTERS[method](args)
 
         # transcripts have changed, some databases need reload
         transcripts_to_load = get_all_used_transcript_ids.save(raw_variants_by_gene)
@@ -294,7 +295,7 @@ def main(args):
 
         variants_by_gene_parsed.save(raw_variants_by_gene)
 
-        print('Variants data parsed and read to use.')
+        print('Variants data parsed and ready to use.')
 
     # 3. Perform chosen analyses and generate reports
     if args.report:

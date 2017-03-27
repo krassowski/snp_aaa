@@ -16,6 +16,9 @@ from vcf_parser import ParsingError, VariantCallFormatParser
 from snp_parser import create_dna_db, create_cdna_db, create_cds_db
 
 
+OFFSET = 20
+
+
 def show_pos_with_context(seq, start, end):
     return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
 
@@ -74,7 +77,7 @@ def get_reference_by_transcript(transcript, databases, offset):
     return reference_seq
 
 
-def check_sequence_consistence(reference_seq, ref, alt, offset=20):
+def check_sequence_consistence(reference_seq, ref, alt, offset=OFFSET):
     """Check if CDS and CDNA sequences are consistent with genomic sequence
 
     (after removal of dashes from both sides).
@@ -211,14 +214,7 @@ def decode_hgvs_code(code):
     return gene, pos, ref, alt
 
 
-def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
-    variant.correct = True  # at least now
-
-    variant.chrom_start = int(variant.chrom_start)
-    variant.chrom_end = int(variant.chrom_end)
-
-    #print('Checking out variant: %s from %s at %s' % (variant.refsnp_id, variant.refsnp_source, pos))
-
+def find_sequence(variant, cds_db, cdna_db, dna_db, offset):
     try:
         reference_sequences = get_reference_seq(
             variant,
@@ -228,18 +224,20 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
         )
     except UnknownChromosome as e:
         print('Unknown chromosome: ', e.message)
-        variant.correct = False
         return
 
-    variant.sequence = choose_best_seq(reference_sequences)
+    if not reference_sequences:
+        return False
 
-    if not variant.sequence:
-        variant.correct = False
-        print('Skipping: No sequence for ', variant.refsnp_id, 'variant.')
+    best_sequence = choose_best_seq(reference_sequences)
 
-    seq_ref = variant.sequence[offset:-offset]
-    #print('Context: ' + show_pos_with_context(seq, offset, -offset))
+    if not best_sequence:
+        return
 
+    return best_sequence
+
+
+def determine_mutation(variant, vcf_parser, offset):
     if variant.refsnp_source == 'PhenCode':
         alt_source = 'PhenCode'
         gene, pos, ref, alt = decode_hgvs_code(variant.refsnp_id)
@@ -272,49 +270,70 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=20):
             variant.correct = False
             return False
 
-    variant.alts = alts
-    variant.ref = seq_ref
-
-    # HGNC Gene:
-    # this causes a problem with CNV mappings
-    # should I use that at all?
-    if gene:
-        variant.gene = gene
-    else:
-        print('Neither GENEINFO nor GENE are available for', variant.refsnp_id)
-        variant.correct = False
-        return
-
     # check ref sequence
-    if ref != seq_ref:
-        print(
-            '%s says ref is %s, but sequence analysis pointed to %s for %s'
-            % (alt_source, ref, seq_ref, variant.refsnp_id)
-        )
+    if variant.sequence:
+        seq_ref = variant.sequence[offset:-offset]
 
-    # check pos
-    if variant.chrom_start != pos:
-        print(
-            'Positions are not matching between %s file and biomart for %s '
-            'with ref: %s and alt: %s where positions are: biomart: %s vcf: %s'
-            % (
-                alt_source, variant.refsnp_id, ref, alts,
-                variant.chrom_start, pos
+        if ref != seq_ref:
+            print(
+                '%s says ref is %s, but sequence analysis pointed to %s for %s'
+                % (alt_source, ref, seq_ref, variant.refsnp_id)
             )
-        )
 
-    analyze_poly_a(variant, offset)
+    return {
+        'gene': gene,
+        'ref': ref,
+        'chrom_start': pos,
+        'alts': alts
+    }
+
+
+def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=OFFSET):
+    variant.correct = True  # at least now
+
+    variant.chrom_start = int(variant.chrom_start)
+    variant.chrom_end = int(variant.chrom_end)
+
+    if not variant.sequence:
+        surrounding_sequence = find_sequence(variant, cds_db, cdna_db, dna_db, offset)
+        if surrounding_sequence:
+            variant.sequence = surrounding_sequence
+        else:
+            print('Cannot determine surrounding sequence for %s variant' % variant)
+            # variant.complete = False
+
+    # print('Context: ' + show_pos_with_context(seq, offset, -offset))
+
+    if not (variant.ref and variant.alts and variant.gene and variant.chrom_start):
+
+        mutation_data = determine_mutation(variant, vcf_parser, offset)
+
+        if not mutation_data:
+            variant.correct = False
+            return
+
+        for attr, value in mutation_data.iteritems():
+            old_value = getattr(variant, attr)
+
+            if old_value and old_value != value:
+                print(
+                    'Deduced %s: %s differs from nominal (%s) for %s'
+                    %
+                    (attr, value, old_value, variant)
+                )
+
+            setattr(variant, attr, value)
 
     return True
 
 
-def analyze_poly_a(variant, offset):
+def analyze_poly_a(variant, offset=OFFSET):
 
     ref_seq = variant.sequence
 
-    #print(variant.refsnp_id)
-    #print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
-    #print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
+    # print(variant.refsnp_id)
+    # print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
+    # print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
 
     has_aaa, before_len = poly_a(
         ref_seq,
@@ -451,7 +470,7 @@ def parse_variants_by_gene(variants_by_gene):
         '1. Merging %s non-unique variants (i.e. identical variants '
         'annotated for different transcripts; you can still find those '
         'transcripts in \'affected_transcripts\' property)\n'
-        '2. Rejection of %s variants' %
+        '2. Rejection of %s invalid variants' %
         (parsed_variants_count, merged_duplicates, rejected_count)
     )
 
