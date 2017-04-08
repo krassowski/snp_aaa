@@ -41,6 +41,14 @@ class SlottedObject(object):
 
         return formatter(kwargs, name=self.__class__.__name__)
 
+    def __getstate__(self):
+        return [(k, getattr(self, k, None)) for k in self.__slots__]
+
+    def __setstate__(self, data):
+        for k, v in data:
+            setattr(self, k, v)
+
+
 
 class Transcript(SlottedObject):
 
@@ -119,6 +127,7 @@ class Variant(SlottedObject):
         'allele_1',  # Ancestral allele - the most frequent allele
         'minor_allele',     # the second most frequent allele
         'chrom_strand',
+        'ensembl_gene_stable_id',
         # 'consequence_type_tv',
         # 'consequence_allele_string'
     )
@@ -130,7 +139,8 @@ class Variant(SlottedObject):
         'alts',
         'poly_aaa',
         'correct',
-        'affected_transcripts'
+        'affected_transcripts',
+        'refseq_transcript'
     )
 
     __slots__ = attributes + biomart_attributes
@@ -145,6 +155,7 @@ class Variant(SlottedObject):
         super(Variant, self).__init__(**kwargs)
 
     def as_hgvs(self):
+        # TODO: what to do for multiple alts?
         for alt in self.alts:
             if self.ref == alt:
                 positions = self.chrom_start

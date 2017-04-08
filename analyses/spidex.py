@@ -486,23 +486,36 @@ def get_all_zscore():
     return _get_all_zscores()
 
 
+import gzip
 @jit
+def count_spidex():
+    count = 0
+    f = gzip.open(SPIDEX_LOCATION)
+    for _ in f:
+        count += 1
+    f.close()
+    return count
+
+
 def _get_all_zscores():
-    import gzip
     zscores = []
 
     print('Counting...')
 
-    with gzip.open(SPIDEX_LOCATION) as file_object:
-        count = sum(1 for _ in file_object)
+    count = count_spidex()
 
     print('Loading...')
 
-    with gzip.open(SPIDEX_LOCATION) as f:
-        header = next(f)
-        for line in tqdm(f, total=count-1):
+    f = gzip.open(SPIDEX_LOCATION)
+    header = next(f)
+    for line in tqdm(f, total=count-1):
+        try:
             record = SpidexRecord(*line.rstrip('\n').split('\t'))
             zscores.append(record.dpsi_zscore)
+        except Exception as e:
+            print(e)
+            continue
+    f.close()
 
     return zscores
 

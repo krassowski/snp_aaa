@@ -57,6 +57,18 @@ TISSUES_LIST = [
 ]
 
 
+class Gene(object):
+    __slots__ = 'name, chrom, start, end, strand, sequence'.split(', ')
+
+    def __init__(self, name, chrom, start, end, strand, sequence=''):
+        self.name = name
+        self.chrom = chrom
+        self.start = int(start)
+        self.end = int(end)
+        self.strand = strand
+        self.sequence = sequence
+
+
 class ExpressedGenes(BerkleyHashList):
 
     def __getitem__(self, gene_id):
