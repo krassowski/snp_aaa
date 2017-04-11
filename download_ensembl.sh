@@ -38,6 +38,14 @@ else
 
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.X.fa.gz
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.Y.fa.gz
-    wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.*.fa.gz -R Homo_sapiens.GRCh$assembly.dna.chromosome.HG*_PATCH.fa.gz
+    wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.*.fa.gz -R Homo_sapiens.GRCh$assembly.dna.chromosome.H*.fa.gz
 fi
 
+
+for i in *.fa.gz;
+do
+	echo "Recompressing $i";
+	gunzip $i -c | bgzip > $i.bgz;
+	mv $i.bgz $i;
+done
+cd ..

@@ -55,7 +55,6 @@ def get_cds_positions(transcripts):
                 continue
             start, end = map(int, data[6:7+1])
             cds_positions[refseq] = (start, end)
-            print(refseq, start, end)
     return cds_positions
 
 
@@ -111,7 +110,8 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
             control.add('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
 
             sequence_nearby_variant = variant.sequence
-            nearby.append('>%s\n%s' % (variant.as_hgvs(), sequence_nearby_variant))
+            # a gdyby tak: control = ref, badane = mutated?
+            nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
 
         fn.write('\n'.join(nearby))
         fc.write('\n'.join(list(control)))
@@ -136,8 +136,8 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
 def gtex_on_spidex_for_motifs(_):
     print('Gtex_on_spidex_for_motifs')
 
-    cds_offset = 20
-    min_motif_length = 10
+    cds_offset = 50
+    min_motif_length = 8
     max_motif_length = 14
 
     variants = {}
@@ -157,8 +157,7 @@ def gtex_on_spidex_for_motifs(_):
         if spidex_record.location != 'exonic':
             continue
 
-        var_repr = variant.as_hgvs()
-        key = (variant.as_hgvs(), g.name)
+        key = (variant.chr_name, variant.chrom_start, variant.alts[0], g.name)
 
         slope = float(slope)
         zscore = float(spidex_record.dpsi_zscore)
