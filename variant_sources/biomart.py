@@ -4,7 +4,6 @@ from collections import defaultdict
 from tqdm import trange
 
 from biomart_data import BiomartData
-from commands import command
 from commands import SourceSubparser
 from snp_parser import BiomartDataset
 from cache import cacheable
@@ -23,12 +22,11 @@ class VariantsData(BiomartData):
             filters = {}
 
         filters.update({
-            'so_parent_name':
+            'so_mini_parent_name':
                 [
-                    'protein_altering_variant',   # inframe + frameshift
-                    'synonymous_variant',
-                    'missense_variant',
-                    'frameshift_variant'
+                    'coding_sequence_variant',      # SO:0001580
+                    # encompasses: synonymous, protein altering, terminator
+                    # codon. and initiatior codon variants
                 ]
         })
         super(self.__class__, self).__init__(dataset, BiomartVariant, filters)
@@ -57,6 +55,7 @@ def gene_names_from_patacsdb_csv(limit_to=None):
 
     return list(genes)
 
+
 biomart_args = SourceSubparser(
     'biomart',
     help='Arguments for biomart arguments fetching'
@@ -65,7 +64,7 @@ biomart_args = SourceSubparser(
 biomart_args.add_command(
     '--dataset',
     type=str,
-    help='name of biomart dataset to be used, eg. hsapiens_snp',
+    help='name of biomart dataset to be used, eg. hsapiens_snp. Default: hsapiens_snp_som',
     default='hsapiens_snp_som'
 )
 
@@ -294,4 +293,3 @@ def show_some_variant(value, args):
         print(variant)
     else:
         print('No variants found in given dataset.')
-
