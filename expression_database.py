@@ -134,7 +134,6 @@ class ExpressionDatabase(BerkleyHashSet):
 
 
 def expression_file_paths(tissues_list, path, suffix):
-    print(tissues_list, suffix)
     for tissue_name in tissues_list:
         file_name = tissue_name + suffix
         file_path = os.path.join(path, file_name)

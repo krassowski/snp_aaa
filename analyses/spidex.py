@@ -163,8 +163,9 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
         if strict:
             raise StrandMismatch(message, repr_data, variant)
         else:
-            print(message)
-            print(variant)
+            # TODO
+            # print(message)
+            # print(variant)
             return []
 
     if convert_to_strand(record.ref_allele, record.strand) != variant.ref:

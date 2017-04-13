@@ -55,7 +55,6 @@ def get_cds_positions(transcripts):
                 continue
             start, end = map(int, data[6:7+1])
             cds_positions[refseq] = (start, end)
-            print(refseq, start, end)
     return cds_positions
 
 
@@ -111,7 +110,8 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
             control.add('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
 
             sequence_nearby_variant = variant.sequence
-            nearby.append('>%s\n%s' % (variant.refsnp_id, sequence_nearby_variant))
+            # a gdyby tak: control = ref, badane = mutated?
+            nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
 
         fn.write('\n'.join(nearby))
         fc.write('\n'.join(list(control)))
@@ -124,9 +124,10 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
         '-desc', name,
         '-mink', min_motif_length,
         '-maxk', max_motif_length,
+        '-oc', location + 'dreme_out',
         '-norc'     # "Search only the given primary sequences for motifs" - excludes searching by reverse complement of sequences
     ]))
-    print(args)
+    print('Executing', ' '.join(args))
     result = subprocess.check_output(args)
     return result
 
@@ -135,16 +136,17 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
 def gtex_on_spidex_for_motifs(_):
     print('Gtex_on_spidex_for_motifs')
 
-    cds_offset = 20
-    min_motif_length = 10
+    cds_offset = 50
+    min_motif_length = 8
     max_motif_length = 14
 
     variants = {}
 
     class Record(object):
-        __slots__ = ('variant', 'zscore', 'valid', 'inconsistent', 'spidex_record')
+        __slots__ = ('variant', 'zscore', 'g', 'valid', 'inconsistent', 'spidex_record')
 
-        def __init__(self, variant, zscore):
+        def __init__(self, variant, zscore, gene):
+            self.g = gene
             self.zscore = zscore
             self.variant = variant
             self.valid = True
@@ -155,28 +157,36 @@ def gtex_on_spidex_for_motifs(_):
         if spidex_record.location != 'exonic':
             continue
 
-        var_repr = variant.as_hgvs()
+        key = (variant.chr_name, variant.chrom_start, variant.alts[0], g.name)
 
         slope = float(slope)
         zscore = float(spidex_record.dpsi_zscore)
 
-        if var_repr not in variants:
-            record = Record(variant, zscore)
+        if key not in variants:
+            record = Record(variant, zscore, g)
             record.spidex_record = spidex_record
-            variants[var_repr] = record
-
+            variants[key] = record
             if variant.chrom_start - g.start < cds_offset or g.end - variant.chrom_end < cds_offset:
                 record.valid = False
                 continue
         else:
-            record = variants[var_repr]
-
+            record = variants[key]
+            # most of the time, if there is a key, the validitiy of the variant
+            # will be already known. But in if executing with multithreading it
+            # can be not yet computed; therefore after 'if not valid' condition
+            # there is a second check: is it really valid?
             if not record.valid:
+                continue
+
+            if variant.chrom_start - g.start < cds_offset or g.end - variant.chrom_end < cds_offset:
+                record.valid = False
                 continue
 
         # TODO filter out mutants with zscore/slope too close to zero
         if sign(zscore) != sign(slope):
             record.inconsistent = True
+
+    print('Grouping spidex-gtex pairs by effect')
 
     variants_down = []
     variants_up = []
@@ -377,7 +387,8 @@ def iterate_gtex_vs_spidex(**kwargs):
 
         if record:
             if g.name != record.gene:
-                print('Gene name mismatch %s %s!' % (g.name, record.gene))
+                # TODO
+                # print('Gene name mismatch %s %s!' % (g.name, record.gene))
                 continue
 
             variant.refseq_transcript = record.transcript
