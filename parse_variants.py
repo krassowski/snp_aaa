@@ -358,6 +358,8 @@ def analyze_poly_a(variant, offset=OFFSET):
         variant.poly_aaa[alt].before = before_len
         variant.poly_aaa[alt].after = after_len
 
+    return variant
+
 
 def create_databases():
     constructors = [create_cds_db, create_cdna_db, create_dna_db]

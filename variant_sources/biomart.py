@@ -166,7 +166,7 @@ def find_difference(variant, known_variant):
     for attr in constant_attributes:
         if getattr(known_variant, attr) != getattr(variant, attr):
             raise ValueError(
-                'Received variants with the same id: %s but different %s.'
+                'Received variants with the same id: %s but different %s.\n'
                 'Only: %s are allowed to differ in Biomart fetched data.'
                 %
                 (variant.refsnp_id, attr, ', '.join(variable_attributes))
@@ -211,6 +211,7 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
         print('Download completed. Parsing...')
 
         variants_in_gene = 0
+        skipped = 0
 
         for biomart_variant in variants:
             assert biomart_variant.refsnp_id
@@ -247,7 +248,26 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
                 known_variant = variants_with_the_same_id[0]
 
                 if variant != known_variant:
-                    find_difference(variant, known_variant)
+                    if (
+                        variant.chr_name != known_variant.chr_name or
+                        variant.chrom_start !=  known_variant.chr_name
+                    ):
+                        # deal with variants mapping to two diffrent locations like:
+                        # http://grch37.ensembl.org/Homo_sapiens/Variation/Explore?v=COSM3677374
+
+                        # TODO: change id of the old and of the new variant,
+                        # so conflict is resolved? It will cause problems when
+                        # retrieving positions by ID.
+
+                        # temporarily skip problematic entities of a variant
+                        # mapping to multiple locations
+                        #print('Skipping variant %s which maps to multiple locations' % variant.refsnp_id)
+                        skipped += 1
+                        continue
+
+                    else:
+                        # check that no other unexpected difference is present
+                        find_difference(variant, known_variant)
 
                 known_variant.affected_transcripts.add(transcript)
             else:
@@ -259,6 +279,7 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
         variants.iterator = None
 
         variants_count += variants_in_gene
+        print('Variant skipped which maps to multiple locations: %s' % skipped)
         print('Parsed %s records.' % variants_in_gene)
 
     print('Downloaded %s transcripts and %s variants' % (transcripts_count, variants_count))
