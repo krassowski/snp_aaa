@@ -1,5 +1,6 @@
 from __future__ import print_function
 from collections import OrderedDict
+import gzip
 
 from tqdm import tqdm
 
@@ -112,8 +113,10 @@ class Intronic(Exception):
 @jit
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):
     """
-    location: (None, 'intronic', 'exonic') is given, ony variants from this location will be returned;
-    strict: should exceptions be raised on anything suspicious or just warning displayed?
+    location: if on of (None, 'intronic', 'exonic') is given,
+        only variants from such location will be returned;
+    strict: should exceptions be raised on anything
+        suspicious or should we show just warnings instead?
     """
 
     relevant_records = []
@@ -194,7 +197,8 @@ complement = {
 
 
 def convert_to_strand(sequence, strand):
-    """If strand is -, return complementary sequence, else return sequence unchanged"""
+    """If strand is -, return complementary sequence,
+    else return the sequence unchanged"""
     if strand == '+':
         return sequence
     else:
@@ -220,6 +224,9 @@ def spidex_from_list(variants_list):
 
         for alt, aaa_data in variant.poly_aaa.items():
 
+            affected_transcripts = list(variant.affected_transcripts)
+            assert len(affected_transcripts) == 1
+
             variant_data = [
                 variant.chr_name,
                 variant.chrom_start,
@@ -228,7 +235,7 @@ def spidex_from_list(variants_list):
                 alt,
                 variant.ensembl_gene_stable_id,
                 variant.chrom_strand,
-                variant.ensembl_transcript_stable_id,
+                affected_transcripts[0].ensembl_id,
                 aaa_data.increased,
                 aaa_data.decreased,
                 aaa_data.change,
@@ -238,7 +245,12 @@ def spidex_from_list(variants_list):
             ]
 
             try:
-                relevant_records = choose_record(records, variant, alt, convert_strands=True)
+                relevant_records = choose_record(
+                    records,
+                    variant,
+                    alt,
+                    convert_strands=True
+                )
             except StrandMismatch as e:
                 print(e.message)
                 skipped_strand_mismatch.append(e.args[1])
@@ -250,7 +262,13 @@ def spidex_from_list(variants_list):
 
             if not relevant_records:
                 to_test_online.append(
-                    [variant.chr_name, variant.chrom_start, variant.refsnp_id, variant.ref, alt or '-']
+                    [
+                        variant.chr_name,
+                        variant.chrom_start,
+                        variant.refsnp_id,
+                        variant.ref,
+                        alt or '-'
+                    ]
                 )
 
             for record in relevant_records:
@@ -352,10 +370,20 @@ def plot_aaa_vs_spidex(spidex_raw_report):
         else:
             data_dict = OrderedDict(
                 (change, np.array(
-                    [x[by] for x in variants_all if x['change'] == change]
+                    [
+                        x[by]
+                        for x in variants_all
+                        if x['change'] == change
+                    ]
                 ))
                 for change in aaa_changes
-                if len([x[by] for x in variants_all if x['change'] == change]) > 1
+                if len(
+                    [
+                        x[by]
+                        for x in variants_all
+                        if x['change'] == change
+                    ]
+                ) > 1
             )
 
         plot = (
@@ -487,7 +515,6 @@ def get_all_zscore():
     return _get_all_zscores()
 
 
-import gzip
 @jit
 def count_spidex():
     count = 0

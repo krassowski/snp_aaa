@@ -91,6 +91,17 @@ def get_sequence(variant, offset):
 
 
 def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
+    """
+    When searing for motifs using unchanged sequence, I assume that there
+    are more mutations destroying already existing motifs.
+
+    Conversely, if I use mutated sequences, I expect that more motifs
+    has been created and the new motifs occurrence has an important effect
+    on expression regulation.
+
+    The second seems to be more difficult to detect as the entropy-derived
+    probabilities of such events are unfavourable.
+    """
     location = 'motifs_discovery/'
     location += name
 
@@ -99,28 +110,36 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
     location += '/'
 
     nearby_mutated_name = location + 'nearby.fa'
-    control_name = location + 'control.fa'
+    control_unique_name = location + 'control_unique.fa'
+    control_one_to_one_name = location + 'control.fa'
 
-    with open(nearby_mutated_name, 'w') as fn, open(control_name, 'w') as fc:
-        nearby = []
-        control = set()
+    nearby = []
+    control = []
+
+    with (
+        open(nearby_mutated_name, 'w') as fn,
+        open(control_unique_name, 'w') as fc,
+        open(control_one_to_one_name, 'w') as fcf
+    ):
 
         for variant in variants:
             full_gene_sequence = sequences[variant.refseq_transcript]
-            control.add('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
+            control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
 
             sequence_nearby_variant = variant.sequence
             # a gdyby tak: control = ref, badane = mutated?
             nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
 
         fn.write('\n'.join(nearby))
-        fc.write('\n'.join(list(control)))
+        fc.write('\n'.join(list(set(control))))
+        fcf.write('\n'.join(control))
 
     # TODO use meme web version for discriminate analysis with longer motifs
     args = list(map(str, [
         'dreme-py3',
+        # '/home/krassowski/bin/dreme',
         '-p', nearby_mutated_name,
-        '-n', control_name,
+        '-n', control_unique_name,
         '-desc', name,
         '-mink', min_motif_length,
         '-maxk', max_motif_length,
