@@ -1,6 +1,7 @@
 from __future__ import print_function
 import vcf
 from berkley_hash_set import BerkleyHashSet
+from fasta_sequence_db import complement
 
 
 class UnknownChromosome(Exception):
@@ -30,7 +31,7 @@ class ParsingError(Exception):
 
 class VariantCallFormatParser(object):
 
-    def __init__(self, vcf_locations, default_source=None, prepend_chr=False):
+    def __init__(self, vcf_sources, default_source=None, prepend_chr=False):
         """
         vcf_locations: mappings name -> location for VCF files to use
         default_source: name of default VCF file to be used
@@ -38,9 +39,10 @@ class VariantCallFormatParser(object):
         """
         self.prepend_chr = prepend_chr
         self.default_source = default_source
+        self.vcf_sources = vcf_sources
         self.readers = {
-            source: vcf.Reader(filename=path)
-            for source, path in vcf_locations.items()
+            source: vcf.Reader(filename=data['path'])
+            for source, data in vcf_sources.items()
         }
 
     def get_by_transcript(self, transcript, pos, source):
@@ -113,6 +115,9 @@ class VariantCallFormatParser(object):
             return self.get_by_pos(source, pos)
 
     def get_by_pos(self, reader_name, pos):
+        """Ultimately all record getters end up reaching for get_by_pos
+        as this is the way the reader retrieve data from file using tabix.
+        """
         try:
             reader = self.readers[reader_name]
         except KeyError:
@@ -144,8 +149,7 @@ class VariantCallFormatParser(object):
 
         return vcf_data
 
-    @staticmethod
-    def parse(vcf_data):
+    def parse(self, vcf_data, variant_source):
         """Parse VCF data, retrieved with retrieve() func, with
         compliance to VCF 4.3 specification, particularly:
 
@@ -198,6 +202,19 @@ class VariantCallFormatParser(object):
         pos = vcf_data.POS + left
         ref = ref[left:-right or None]
         alts = [a[left:-right or None] for a in alts]
+
+        if self.vcf_sources[variant_source]['given_as_positive_strand_only']:
+            # take a look at this example:
+            # 1	91404597	COSM913148	AAGAATTT	A	.	.	GENE=ZNF644;STRAND=-;CDS=c.2307_2313delAAATTCT;AA=p.L769fs*36;CNT=1
+            # first left padding is removed (before this if) (so we have AGAATTT),
+            # then we get reversed complement to obtain AAATTCT
+            strands = vcf_data.INFO['STRAND']
+
+            if len(strands) > 1:
+                print('More than one strand specified: ' % strands)
+            if strands[0] == '-':
+                ref = complement(ref)[::-1]
+                alts = [complement(alt)[::-1] for alt in alts]
 
         # validation
         if left and right:

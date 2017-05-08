@@ -106,9 +106,9 @@ class SequenceDB(BasicSequenceDB):
             start, end = self.parse_coordinates(raw_start, raw_end)
             whole_seq = self.get(name)
 
-            if strand == -1:
-                whole_seq = complement(whole_seq)[::-1]
-                start, end = len(whole_seq) - end, len(whole_seq) - start
+            #if strand == -1:
+            #    whole_seq = complement(whole_seq)[::-1]
+            #    start, end = len(whole_seq) - end, len(whole_seq) - start
 
             cut_from = start - offset
             cut_to = end + offset
@@ -129,10 +129,9 @@ class SequenceDB(BasicSequenceDB):
 
 
 class FastSequenceDB(BasicSequenceDB):
-
     """
     This operates on chromosome files with all sequence continuous
-    without breakes or headers except the one in the first line.
+    without breaks or headers except the one in the first line.
     """
 
     def __init__(self, version, assembly, id_type, sequence_type='dna', length=60):
@@ -140,7 +139,7 @@ class FastSequenceDB(BasicSequenceDB):
         super(FastSequenceDB, self).__init__(sequence_type, id_type, version, assembly)
         self.length = length
 
-    def fetch(self, start, end, offset=0):
+    def fetch(self, start, end, strand, offset=0):
 
         start -= 1
 
@@ -185,5 +184,10 @@ class FastSequenceDB(BasicSequenceDB):
 
                     if pos_to < length:
                         break
+
+        # print('strand: %s' % strand)
+        if strand == '-1':
+            # print('inverting')
+            result = complement(result)[::-1]
 
         return result

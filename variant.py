@@ -36,7 +36,7 @@ class SlottedObject(object):
 
         for attr in self.__slots__:
             value = getattr(self, attr, None)
-            if value:
+            if value is not None:
                 kwargs[attr] = value
 
         return formatter(kwargs, name=self.__class__.__name__)
@@ -47,7 +47,6 @@ class SlottedObject(object):
     def __setstate__(self, data):
         for k, v in data:
             setattr(self, k, v)
-
 
 
 class Transcript(SlottedObject):
@@ -170,6 +169,22 @@ class Variant(SlottedObject):
                 assert False
 
             return '{chrom}:g.{positions}{event}'.format(chrom=self.chr_name, positions=positions, event=event)
+
+    #@property
+    def is_deletion(self, alt=None):
+        ref_len = len(self.ref)
+        if alt:
+            return ref_len > len(alt)
+        else:
+            return all([ref_len > len(alt) for alt in self.alts])
+
+    #@property
+    def is_insertion(self, alt=None):
+        ref_len = len(self.ref)
+        if alt:
+            return ref_len < len(alt)
+        else:
+            return all([ref_len < len(alt) for alt in self.alts])
 
     @property
     def padded_coords(self):

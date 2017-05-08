@@ -10,7 +10,7 @@ from multiprocessing import Pool
 
 from tqdm import tqdm
 from poly_a import poly_a
-from snp_parser import vcf_locations
+from snp_parser import vcf_mutation_sources
 from variant import PolyAAAData
 from vcf_parser import ParsingError, VariantCallFormatParser
 from snp_parser import create_dna_db, create_cdna_db, create_cds_db
@@ -31,9 +31,13 @@ def get_reference_seq(variant, dna_db, transcript_databases, offset):
 
     chrom = variant.chr_name
 
+    # TODO: document this workaround for range shift in cosmic coordinates
+    #if variant.refsnp_source == 'COSMIC':
+    #    variant.chrom_start += 1
+
     try:
         chrom = dna_db[chrom]
-        seq = chrom.fetch(variant.chrom_start, variant.chrom_end, offset)
+        seq = chrom.fetch(variant.chrom_start, variant.chrom_end, variant.chrom_strand, offset)
     except KeyError:
         raise UnknownChromosome(chrom)
 
@@ -252,11 +256,12 @@ def determine_mutation(variant, vcf_parser, offset):
                     'VCF data contains more than one record matching %s '
                     'variant: %s ' % (variant.refsnp_id, vcf_data)
                 )
+                print('Only the first record will be parsed!')
             elif len(vcf_data) == 0:
                 raise ParsingError('No VCF data for %s.' % variant.refsnp_id)
 
             analysed_vcf_record = vcf_data[0]
-            pos, ref, alts = vcf_parser.parse(analysed_vcf_record)
+            pos, ref, alts = vcf_parser.parse(analysed_vcf_record, variant.refsnp_source)
             gene = vcf_parser.get_gene(analysed_vcf_record)
         except ParsingError as e:
             print(
@@ -279,6 +284,8 @@ def determine_mutation(variant, vcf_parser, offset):
                 '%s says ref is %s, but sequence analysis pointed to %s for %s'
                 % (alt_source, ref, seq_ref, variant.refsnp_id)
             )
+            if ref == '':
+                print('Probably it\'s just insertion ;)')
 
     return {
         'gene': gene,
@@ -383,7 +390,7 @@ def parse_gene_variants(item):
     print('Analysing:', len(variants), 'from', gene)
 
     vcf_parser = VariantCallFormatParser(
-        vcf_locations,
+        vcf_mutation_sources,
         default_source='ensembl'
     )
 

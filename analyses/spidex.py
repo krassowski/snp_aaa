@@ -133,8 +133,11 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
         if strict:
             raise ValueError(message)
         else:
-            print(message)
-            print(relevant_records)
+            print(message, 'For variant:')
+            print(variant)
+            print('Those records have been received:')
+            for r in relevant_records:
+                print(r)
 
     record = relevant_records[0]
 
@@ -173,6 +176,12 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
 
     if convert_to_strand(record.ref_allele, record.strand) != variant.ref:
         message = 'Reference mismatch for %s!' % variant.refsnp_id
+        message += 'Variant ref: %s; record ref: %s, record strand: %s, record converted: %s' % (
+            variant.ref,
+            record.ref_allele,
+            record.strand,
+            convert_to_strand(record.ref_allele, record.strand)
+        )
         if strict:
             raise Mismatch(
                 message,
@@ -214,6 +223,7 @@ def spidex_from_list(variants_list):
     to_test_online = []
     skipped_intronic = []
     skipped_strand_mismatch = []
+    skipped_indels = []
 
     counter = 0
 
@@ -223,6 +233,10 @@ def spidex_from_list(variants_list):
         records = spidex_get_variant(tb, variant)
 
         for alt, aaa_data in variant.poly_aaa.items():
+
+            if variant.is_insertion(alt) or variant.is_deletion(alt):
+                skipped_indels.append((variant, alt))
+                continue
 
             affected_transcripts = list(variant.affected_transcripts)
             assert len(affected_transcripts) == 1
@@ -244,8 +258,11 @@ def spidex_from_list(variants_list):
                 variant.refsnp_id,
             ]
 
+            relevant_record = None
+
             try:
-                relevant_records = choose_record(
+                #print('Records are:', records)
+                relevant_record = choose_record(
                     records,
                     variant,
                     alt,
@@ -260,7 +277,7 @@ def spidex_from_list(variants_list):
             except Mismatch as e:
                 print(e.message)
 
-            if not relevant_records:
+            if not relevant_record:
                 to_test_online.append(
                     [
                         variant.chr_name,
@@ -271,11 +288,14 @@ def spidex_from_list(variants_list):
                     ]
                 )
 
-            for record in relevant_records:
+            else:
+                record = relevant_record
 
+                #print('Record', record)
                 spidex_raw_report.append([variant, alt, aaa_data, record])
 
                 record_data = variant_data
+                #print('This record is of type ', record, ': >', record)
                 record_data += [record.dpsi_max_tissue, record.dpsi_zscore]
 
                 spidex_report.append(record_data)
@@ -286,6 +306,7 @@ def spidex_from_list(variants_list):
     )
     show_spanr_queries(to_test_online)
 
+    print('Skipped %s indels (SPIDEX does only 1-1 SNPs)' % len(skipped_indels))
     print('Analysed %s mutations.' % counter)
 
     report(

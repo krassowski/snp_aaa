@@ -31,13 +31,25 @@ DBSNP_VERSION = '149'
 SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
 
 
-vcf_locations = {
-    'COSMIC': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
-    'dbSNP': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
-    GRCH_SUBVERSION + '/00-All.vcf.gz',
-    'ClinVar': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
-    GRCH_SUBVERSION + '/00-All.vcf.gz',
-    'ensembl': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz'
+vcf_mutation_sources = {
+    'COSMIC': {
+        'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
+        'given_as_positive_strand_only': True
+    },
+    'dbSNP': {
+        'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
+        GRCH_SUBVERSION + '/00-All.vcf.gz',
+        'given_as_positive_strand_only': False
+    },
+    'ClinVar': {
+        'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
+        GRCH_SUBVERSION + '/00-All.vcf.gz',
+        'given_as_positive_strand_only': False
+    },
+    'ensembl': {
+        'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
+        'given_as_positive_strand_only': False
+    }
 }
 
 

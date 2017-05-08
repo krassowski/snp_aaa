@@ -122,7 +122,7 @@ def biomart(args):
     """
     dataset = BiomartDataset(args.biomart, name=args.dataset)
 
-    raw_variants_by_gene = download_variants.save(
+    raw_variants_by_gene = download_variants.load_or_create(
         args.biomart,
         dataset,
         args.genes_list,
@@ -201,13 +201,26 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
     if gene_names == ['all_human_genes']:
         gene_names = get_all_human_genes.load_or_create(biomart)
 
+    gene_names = list(gene_names)
+
     for start in trange(0, len(gene_names), step_size):
 
         query_filters = {'ensembl_gene': gene_names[start:start + step_size]}
         query_filters.update(filters)
 
         print('Downloading variants for genes:', gene_names[start:start + step_size])
-        variants = VariantsData(filters=filters, dataset=dataset)
+
+        import httplib
+        import requests
+
+        while True:
+            try:
+                variants = VariantsData(filters=filters, dataset=dataset)
+                break
+            except httplib.IncompleteRead, requests.models.ChunkedEncodingError:
+                print('Download failed (incomplete read), retrying...')
+                continue
+
         print('Download completed. Parsing...')
 
         variants_in_gene = 0
@@ -250,7 +263,7 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
                 if variant != known_variant:
                     if (
                         variant.chr_name != known_variant.chr_name or
-                        variant.chrom_start !=  known_variant.chr_name
+                        variant.chrom_start != known_variant.chr_name
                     ):
                         # deal with variants mapping to two diffrent locations like:
                         # http://grch37.ensembl.org/Homo_sapiens/Variation/Explore?v=COSM3677374
