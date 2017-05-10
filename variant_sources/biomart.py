@@ -203,23 +203,35 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
 
     gene_names = list(gene_names)
 
+    import httplib
+    import requests
+    import gc
+
     for start in trange(0, len(gene_names), step_size):
 
         query_filters = {'ensembl_gene': gene_names[start:start + step_size]}
         query_filters.update(filters)
 
         print('Downloading variants for genes:', gene_names[start:start + step_size])
+        downloaded = False
 
-        import httplib
-        import requests
-
-        while True:
+        while not downloaded:
             try:
-                variants = VariantsData(filters=filters, dataset=dataset)
-                break
-            except httplib.IncompleteRead, requests.models.ChunkedEncodingError:
+                variants_store = VariantsData(filters=filters, dataset=dataset)
+                variants = list(variants_store)
+                downloaded = True
+            except (
+                httplib.IncompleteRead,
+                requests.models.ChunkedEncodingError,
+                requests.exceptions.ChunkedEncodingError
+            ):
                 print('Download failed (incomplete read), retrying...')
-                continue
+                locals_dict = locals()
+                if 'variants' in locals_dict:
+                    del variants
+                if 'variants_store' in locals_dict:
+                    del variants_store
+            gc.collect()
 
         print('Download completed. Parsing...')
 
@@ -265,7 +277,7 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
                         variant.chr_name != known_variant.chr_name or
                         variant.chrom_start != known_variant.chr_name
                     ):
-                        # deal with variants mapping to two diffrent locations like:
+                        # deal with variants mapping to two different locations like:
                         # http://grch37.ensembl.org/Homo_sapiens/Variation/Explore?v=COSM3677374
 
                         # TODO: change id of the old and of the new variant,
@@ -289,7 +301,7 @@ def download_variants(biomart, dataset, gene_names, step_size=50, filters={}):
 
         # this is a small trick to turn off unpickable iterator so it is
         # possible to save the variants object as a cache by pickling
-        variants.iterator = None
+        variants_store.iterator = None
 
         variants_count += variants_in_gene
         print('Variant skipped which maps to multiple locations: %s' % skipped)
