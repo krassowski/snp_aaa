@@ -5,3 +5,4 @@ wget ftp://ftp.ensembl.org/pub/grch37/release-88/mysql/homo_sapiens_variation_88
 wget ftp://ftp.ensembl.org/pub/grch37/release-88/mysql/homo_sapiens_variation_88_37/seq_region.txt.gz
 wget ftp://ftp.ensembl.org/pub/grch37/release-88/mysql/homo_sapiens_variation_88_37/source.txt.gz
 wget ftp://ftp.ensembl.org/pub/grch37/release-88/mysql/homo_sapiens_variation_88_37/variation_genename.txt.gz
+wget ftp://ftp.ensembl.org/pub/grch37/release-88/mysql/homo_sapiens_core_88_37/transcript.txt.gz
