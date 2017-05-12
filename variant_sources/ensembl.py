@@ -3,11 +3,13 @@ import json
 import subprocess
 from collections import defaultdict, OrderedDict
 import gc
+from multiprocessing import Pool
 
 from tqdm import tqdm
 
 from cache import cacheable
 from commands import SourceSubparser
+from parse_variants import get_unique_variants, init_worker
 from variant import Variant, BiomartVariant, Transcript
 from variant_sources import variants_getter
 from variant_sources.biomart import gene_names_from_patacsdb_csv
@@ -112,10 +114,6 @@ def load_ensembl_variants(gene_names, filters={}):
         for line in tqdm(f, total=count_lines(f)):
             data = line.split('\t')
             transcript_strand[data[14]] = data[6]
-
-    @jit
-    def check_and_split(line):
-            return data, ref
 
     with gzip.open(loc + 'transcript_variation.txt.gz') as f:
         for line in tqdm(f, total=count_lines(f)):
@@ -235,6 +233,7 @@ def load_ensembl_variants(gene_names, filters={}):
     by_name = defaultdict(list)
     no_name = 0
     no_u = 0
+
     for v in tqdm(by_id.itervalues(), total=len(by_id)):
         if not hasattr(v, 'refsnp_id'):
             no_name += 1

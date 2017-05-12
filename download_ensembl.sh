@@ -4,7 +4,7 @@
 #wget http://evs.gs.washington.edu/evs_bulk_data/ESP6500SI-V2-SSA137.GRCh38-liftover.snps_indels.vcf.tar.gz
 #tar -zxvf ESP6500SI-V2-SSA137.GRCh38-liftover.snps_indels.vcf.tar.gz
 
-ensembl_version=75
+ensembl_version=88
 assembly=37
 
 cd ensembl
@@ -23,18 +23,24 @@ else
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/cds/Homo_sapiens.GRCh$assembly.cds.all.fa.gz
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh$assembly.cdna.all.fa.gz
     # download chromosomes, without pathes
-    wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
 
-    if (( $ensembl_version > 75 ))
+    if (( $assembly > 37 ))
     then
+        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
         wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
     else
-        echo "Indexing vcf.gz file ..."
-        ../../vcf_to_tabix.sh Homo_sapiens.vcf.gz
-        mv Homo_sapiens.vcf.gz Homo_sapiens.vcf.gz.unsorted
-        mv Homo_sapiens.vcf.gz.bgz Homo_sapiens.vcf.gz
-        mv Homo_sapiens.vcf.gz.bgz.tbi Homo_sapiens.vcf.gz.tbi
+        wget ftp://ftp.ensembl.org/pub/grch$assembly/update/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
+        wget ftp://ftp.ensembl.org/pub/grch$assembly/update/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
+        #if (( $ensembl_version < 76 ))
+        #then
+        #    echo "Indexing vcf.gz file ..."
+        #    ../../vcf_to_tabix.sh Homo_sapiens.vcf.gz
+        #    mv Homo_sapiens.vcf.gz Homo_sapiens.vcf.gz.unsorted
+        #    mv Homo_sapiens.vcf.gz.bgz Homo_sapiens.vcf.gz
+        #    mv Homo_sapiens.vcf.gz.bgz.tbi Homo_sapiens.vcf.gz.tbi
+        #fi
     fi
+
 
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.X.fa.gz
     wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.Y.fa.gz
