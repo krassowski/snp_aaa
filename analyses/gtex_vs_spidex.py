@@ -91,7 +91,7 @@ def get_sequence(variant, offset):
     return ''.join(fasta.split('\n')[1:])
 
 
-def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
+def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, slice_by=1000):
     """
     When searing for motifs using unchanged sequence, I assume that there
     are more mutations destroying already existing motifs.
@@ -115,25 +115,55 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
     control_one_to_one_name = location + 'control.fa'
 
     nearby = []
-    control = []
+    control = set()
 
-    with \
-    open(nearby_mutated_name, 'w') as fn, \
-    open(control_unique_name, 'w') as fc, \
-    open(control_one_to_one_name, 'w') as fcf \
-    :
+    fn = open(nearby_mutated_name, 'w')
+    fc = open(control_unique_name, 'w')
+    fcf = open(control_one_to_one_name, 'w')
 
-        for variant in variants:
-            full_gene_sequence = sequences[variant.refseq_transcript]
-            control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
+    part = 0
+    names = {
+        'fn': nearby_mutated_name,
+        'fc': control_one_to_one_name,
+        'fcf': control_unique_name
+    }
+    handles = {
+        name: open('%s_part_%s' % (file_name, part), 'w')
+        for name, file_name in names.items()
+    }
 
-            sequence_nearby_variant = variant.sequence
-            # a gdyby tak: control = ref, badane = mutated?
-            nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
+    for i, variant in tqdm(enumerate(variants), total=len(variants)):
+        if (i + 1) % slice_by == 0:
+            handles['fn'].write('\n'.join(nearby))
+            handles['fc'].write('\n'.join(list(set(control))))
+            handles['fcf'].write('\n'.join(control))
+            nearby = []
+            control = set()
 
-        fn.write('\n'.join(nearby))
-        fc.write('\n'.join(list(set(control))))
-        fcf.write('\n'.join(control))
+            for handle in handles.values():
+                handle.close()
+
+            part += 1
+
+            handles = {
+                name: open('%s_part_%s' % (file_name, part), 'w')
+                for name, file_name in names.items()
+            }
+
+        full_gene_sequence = sequences[variant.refseq_transcript]
+        control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
+
+        sequence_nearby_variant = variant.sequence
+        # a gdyby tak: control = ref, badane = mutated?
+        nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
+
+    handles['fn'].write('\n'.join(nearby))
+    handles['fc'].write('\n'.join(list(set(control))))
+    handles['fcf'].write('\n'.join(control))
+    for handle in handles.values():
+        handle.close()
+
+    return 'Ready to online testing!'
 
     # TODO use meme web version for discriminate analysis with longer motifs
     args = list(map(str, [
