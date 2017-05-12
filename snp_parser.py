@@ -25,7 +25,7 @@ VERBOSITY_LEVEL = 0
 
 GRCH_VERSION = 'GRCh37'
 GRCH_SUBVERSION = '13'
-ENSEMBL_VERSION = '75'
+ENSEMBL_VERSION = '88'
 COSMIC_VERSION = '80'
 DBSNP_VERSION = '149'
 SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
