@@ -17,13 +17,15 @@ from scipy.stats import pearsonr
 import numpy as np
 import sys
 import math
+"""
 from IPython.core import ultratb
 
 sys.excepthook = ultratb.FormattedTB(
     mode='Verbose',
     color_scheme='Linux',
-    call_pdb=1
+    call_pdb=0
 )
+"""
 
 
 def create_path_for_genes_db(tissues):

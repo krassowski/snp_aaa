@@ -71,7 +71,7 @@ class BiomartVariant(SlottedObject):
         'chrom_end',
         # 'allele',  # Variant Alleles
         'allele_1',  # Ancestral allele - the most frequent allele
-        'minor_allele',     # the second most frequent allele
+        # 'minor_allele',     # the second most frequent allele
         'chrom_strand',
         'cdna_start',
         'cdna_end',
@@ -86,9 +86,7 @@ class BiomartVariant(SlottedObject):
 
     __slots__ = attributes
 
-    def __init__(self, line_args):
-
-        kwargs = {}
+    def __init__(self, line_args=None, **kwargs):
 
         if line_args:
             args = line_args.split('\t')

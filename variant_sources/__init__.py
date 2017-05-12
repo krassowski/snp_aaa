@@ -8,3 +8,4 @@ def variants_getter(func):
 import biomart
 import pkdb
 import clinvar
+import ensembl

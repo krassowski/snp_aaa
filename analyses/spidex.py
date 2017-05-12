@@ -12,7 +12,7 @@ from cache import cacheable
 import tabix
 from recordclass import recordclass
 import numpy as np
-from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab
+from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab, ggsave
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -63,11 +63,14 @@ def draw_plot(plot):
         ]
 
         if type(plot) is ggplot:
-            plot.draw().waitforbuttonpress()
+            ggsave(filename=plot.title + '.png', plot=plot)
+            #plot.draw().waitforbuttonpress()
         elif type(plot) in seaborns:
-            plot.fig.show()
+            #plot.fig.show()
+            plot.fig.savefig(plot.ax.title.get_text() + '.png')
         elif type(plot) is axes.Subplot:
-            plot.figure.show()
+            #plot.figure.show()
+            plot.figure.savefig(plot.title.get_text() + '.png')
         else:
             raise Exception('Unrecognized plot type: %s' % type(plot))
 
