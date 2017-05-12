@@ -48,12 +48,12 @@ class cacheable(object):
             )
             try:
                 return self.save(*args, **kwargs)
-            except TypeError:
+            except TypeError as e:
                 print(
-                    'Whops! %s needs to be loaded manually as there are few arguments required' %
+                    'Whops! %s probably needs to be loaded manually as there are few arguments required' %
                     self.display_name
                 )
-                sys.exit(1)
+                raise e
 
     def load(self):
         with open(self.cache_name, 'rb') as f:

@@ -8,6 +8,7 @@ from tqdm import tqdm
 from analyses import reporter
 from analyses.spidex import spidex_get_variant, choose_record
 from analyses.spidex import convert_to_strand
+from cache import cacheable
 from expression_database import ExpressedGenes, iterate_over_expression, Gene
 from expression_database import count_all, TISSUES_LIST, import_expressed_genes
 from snp_parser import SPIDEX_LOCATION, jit
@@ -116,11 +117,11 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
     nearby = []
     control = []
 
-    with (
-        open(nearby_mutated_name, 'w') as fn,
-        open(control_unique_name, 'w') as fc,
-        open(control_one_to_one_name, 'w') as fcf
-    ):
+    with \
+    open(nearby_mutated_name, 'w') as fn, \
+    open(control_unique_name, 'w') as fc, \
+    open(control_one_to_one_name, 'w') as fcf \
+    :
 
         for variant in variants:
             full_gene_sequence = sequences[variant.refseq_transcript]
@@ -136,8 +137,8 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
 
     # TODO use meme web version for discriminate analysis with longer motifs
     args = list(map(str, [
-        'dreme-py3',
-        # '/home/krassowski/bin/dreme',
+        #'dreme-py3',
+        '/home/krassowski/meme/bin/dreme',
         '-p', nearby_mutated_name,
         '-n', control_unique_name,
         '-desc', name,
@@ -148,17 +149,29 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length):
     ]))
     print('Executing', ' '.join(args))
     result = subprocess.check_output(args)
+    print(result)
+
+
+    args = list(map(str, [
+        #'meme',
+        '/home/krassowski/meme/bin/meme',
+        nearby_mutated_name,
+        '-desc', name,
+        '-minw', min_motif_length,
+        '-maxw', max_motif_length,
+        '-nmotifs', 15,
+        '-oc', location + 'meme_out',
+        #'-revcomp' is not active by default (complementary to norc)
+    ]))
+    print('Executing', ' '.join(args))
+    result = subprocess.check_output(args)
+    print(result)
+
     return result
 
 
-@reporter
-def gtex_on_spidex_for_motifs(_):
-    print('Gtex_on_spidex_for_motifs')
-
-    cds_offset = 50
-    min_motif_length = 8
-    max_motif_length = 14
-
+@cacheable
+def get_muts_groups_and_seqs(cds_offset):
     variants = {}
 
     class Record(object):
@@ -190,7 +203,7 @@ def gtex_on_spidex_for_motifs(_):
                 continue
         else:
             record = variants[key]
-            # most of the time, if there is a key, the validitiy of the variant
+            # most of the time, if there is a key, the validity of the variant
             # will be already known. But in if executing with multithreading it
             # can be not yet computed; therefore after 'if not valid' condition
             # there is a second check: is it really valid?
@@ -266,6 +279,18 @@ def gtex_on_spidex_for_motifs(_):
         'consistent_down': variants_down,
         'inconsistent': variants_inconsistent
     }
+    return groups, sequences
+
+
+@reporter
+def gtex_on_spidex_for_motifs(_):
+    print('Gtex_on_spidex_for_motifs')
+
+    cds_offset = 50
+    min_motif_length = 8
+    max_motif_length = 14
+
+    groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
 
     try:
         for group_name, variants_list in groups.items():
