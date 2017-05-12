@@ -37,7 +37,14 @@ Aim: Compare length / lengthening of poly(A) tracks by a variant with its predic
 
 Data source: SPIDEX
 
+Full genome:
+./snp_parser.py -v ensembl --report poly_aaa_vs_spidex
+Genome: GRCh37 (Ensembl 88)
+
+Only genes known to have poly_aaa
+./snp_parser.py -v biomart --report poly_aaa_vs_spidex
 Genome: GRCh37 (Ensembl 75)
+
 
 ##### ZCRB1:c.411G>A
 
@@ -51,7 +58,13 @@ Genome: GRCh37 (Ensembl 75)
 
 Aim: Verification of an assumption about extended predictive capabilities of SPIDEX database.
 
+./snp_parser.py -n --report gtex_vs_spidex
 Genome: GRCh37 (Ensembl 75)
+
+##### Motifs discovery
+
+Preprare motifs analysis of mutations which are changed in the same direction in both spidex and GTEX
+./snp_parser.py -n --report gtex_vs_spidex_for_motifs
 
 ## What is the workflow of particular modules? ##
 
