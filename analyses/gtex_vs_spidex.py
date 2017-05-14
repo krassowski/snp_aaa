@@ -328,19 +328,29 @@ def gtex_on_spidex_for_motifs(_):
     min_motif_length = 8
     max_motif_length = 14
 
-    groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
+    perform_motifs_search(cds_offset, min_motif_length, max_motif_length)
+
+def perform_motifs_search(cds_offset, *args, **kwargs):
+    """Args and kwargs will be passed to find_motifs function"""
+     groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
 
     try:
         for group_name, variants_list in groups.items():
-            out = find_motifs(variants_list, group_name, sequences, min_motif_length, max_motif_length)
+            out = find_motifs(
+                variants_list,
+                group_name,
+                sequences,
+                min_motif_length,
+                max_motif_length
+            )
             print(out)
     except Exception as e:
         import traceback
         traceback.print_exc(e)
 
-    print('Finished, entering interactive mode')
-    from IPython import embed
-    embed()
+    #print('Finished, entering interactive mode')
+    #from IPython import embed
+    #embed()
 
 
 @reporter
