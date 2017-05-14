@@ -93,7 +93,7 @@ def get_sequence(variant, offset):
     return ''.join(fasta.split('\n')[1:])
 
 
-def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, slice_by=1000):
+def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, slice_by=1000, max_sequence_length=60000):
     """
     When searing for motifs using unchanged sequence, I assume that there
     are more mutations destroying already existing motifs.
@@ -104,7 +104,17 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, s
 
     The second seems to be more difficult to detect as the entropy-derived
     probabilities of such events are unfavourable.
+
+    For online meme discriminative analysis collected results will be
+    saved and partitioned into several files according to:
+        slice_by: the maximal count of sequence in a single "part" file
+        max_sequence_length: combined sequence length to adjust the number of
+            sequences to be saved in a "part" file
     """
+    # determine how many sequences can be put in file
+    some_sequence = variants[0].sequence
+    slice_by = min(slice_by, max_sequence_length / len(some_sequence) - 1)
+
     location = 'motifs_discovery/'
     location += name
 
@@ -113,21 +123,17 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, s
     location += '/'
 
     nearby_mutated_name = location + 'nearby.fa'
-    control_unique_name = location + 'control_unique.fa'
-    control_one_to_one_name = location + 'control.fa'
+    control_unique_name = location + 'control.fa'
+    control_one_to_one_name = location + 'control_not_unique.fa'
 
     nearby = []
-    control = set()
-
-    fn = open(nearby_mutated_name, 'w')
-    fc = open(control_unique_name, 'w')
-    fcf = open(control_one_to_one_name, 'w')
+    control = []
 
     part = 0
     names = {
-        'fn': nearby_mutated_name,
-        'fc': control_one_to_one_name,
-        'fcf': control_unique_name
+        'variant_flanked_file': nearby_mutated_name,
+        'control_uniq_file': control_unique_name,
+        'control_redundant_file': control_one_to_one_name
     }
     handles = {
         name: open('%s_part_%s' % (file_name, part), 'w')
@@ -136,11 +142,11 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, s
 
     for i, variant in tqdm(enumerate(variants), total=len(variants)):
         if (i + 1) % slice_by == 0:
-            handles['fn'].write('\n'.join(nearby))
-            handles['fc'].write('\n'.join(list(set(control))))
-            handles['fcf'].write('\n'.join(control))
+            handles['variant_flanked_file'].write('\n'.join(nearby))
+            handles['control_uniq_file'].write('\n'.join(list(set(control))))
+            handles['control_redundant_file'].write('\n'.join(control))
             nearby = []
-            control = set()
+            control = []
 
             for handle in handles.values():
                 handle.close()
@@ -159,9 +165,9 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, s
         # a gdyby tak: control = ref, badane = mutated?
         nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
 
-    handles['fn'].write('\n'.join(nearby))
-    handles['fc'].write('\n'.join(list(set(control))))
-    handles['fcf'].write('\n'.join(control))
+    handles['variant_flanked_file'].write('\n'.join(nearby))
+    handles['control_uniq_file'].write('\n'.join(list(set(control))))
+    handles['control_redundant_file'].write('\n'.join(control))
     for handle in handles.values():
         handle.close()
 
