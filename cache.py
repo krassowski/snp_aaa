@@ -56,6 +56,7 @@ class cacheable(object):
                 raise e
 
     def load(self):
+        print('Loading %s' % self.display_name)
         with open(self.cache_name, 'rb') as f:
             try:
                 result = pickle.load(f)
