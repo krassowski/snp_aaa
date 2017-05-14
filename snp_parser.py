@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python -u
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
@@ -58,7 +58,6 @@ try:
 except ImportError:
     print('Install numba to speed up execution')
     jit = lambda x: x
-
 
 def select_poly_a_related_variants(variants):
     """Return list oof variants occurring in a poly(A) track and variants which will create poly(A) track."""
