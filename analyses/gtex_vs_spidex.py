@@ -2,6 +2,7 @@ import os
 import subprocess
 import tabix
 from collections import defaultdict
+from os.path import dirname
 
 from tqdm import tqdm
 
@@ -93,7 +94,138 @@ def get_sequence(variant, offset):
     return ''.join(fasta.split('\n')[1:])
 
 
-def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, slice_by=1000, max_sequence_length=60000):
+def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=1000, max_sequence_length=60000):
+    """Write flanked sequences of variants and relevant control sequences to fasta files.
+
+    If slice_by or max_sequence_length is given (it might be desired e.g.
+    in order to upload sequences to online meme service which has multiple
+    restriction on input size), sequences will be partitioned into several
+    files according to:
+        slice_by: the maximal count of sequence in a single "part" file
+        max_sequence_length: combined sequence length to adjust the number of
+            sequences to be saved in a "part" file
+
+    Returns: a dictionary pointing to locations of created files
+    """
+
+    # determine how many sequences can be put in file
+    some_sequence = variants[0].sequence
+    slice_by = min(slice_by, max_sequence_length / len(some_sequence) - 1)
+
+    location = 'motifs_discovery/' + dir_name
+
+    if not os.path.exists(location):
+        os.makedirs(location)
+
+    location += '/'
+
+    sequences_paths = {
+        'variant_flanked_file': location + 'nearby.fa',
+        'control_unique_file': location + 'control.fa',
+        'control_redundant_file': location + 'control_not_unique.fa'
+    }
+
+    nearby = []
+    control = []
+
+    def dump(handles, nearby, control):
+        handles['variant_flanked_file'].write('\n'.join(nearby))
+        handles['control_unique_file'].write('\n'.join(list(set(control))))
+        handles['control_redundant_file'].write('\n'.join(control))
+
+        for handle in handles.values():
+            handle.close()
+
+
+    part = None
+
+    if slice_by or max_sequence_length:
+        part = 0
+
+    def create_handles(part):
+        return {
+            name: open('%s_part_%s' % (file_name, part) if part is not None else file_name, 'w')
+            for name, file_name in sequences_paths.items()
+        }
+
+    handles = create_handles(part)
+
+    for i, variant in tqdm(enumerate(variants), total=len(variants)):
+        if slice_by and (i + 1) % slice_by == 0:
+            dump(handles, nearby, control)
+            part += 1
+            handles = create_handles(part)
+
+            nearby = []
+            control = []
+
+        full_gene_sequence = control_sequences[variant.refseq_transcript]
+        control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
+
+        sequence_nearby_variant = variant.sequence
+        nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
+
+    dump(handles, nearby, control)
+
+    return sequences_paths
+
+
+def find_motifs(motifs_files, min_motif_length, max_motif_length, description='', program='dreme', use_control=True):
+    """Find motifs using either dreme or meme package.
+
+    By default uses provided control sequences set if 'dreme' is selected.
+    Control sequences cannot be used with meme as offline version does not support that.
+
+    Arguments:
+        motifs_files: a dict with keys pointing to variant sequences and control sequences files
+        min_motif_length: mink/minw
+        max_motif_length: maxk/maxw
+        program: either 'meme' or 'dreme'
+        use_control: should provided control sequences be used or should dreme use shuffled sequences?
+    """
+    if program == 'meme' and use_control:
+        raise Exception('Cannot use control sequences with meme. Change use_control to False.')
+
+    variants_path = motifs_files['variant_flanked_file']
+    control_path = motifs_files['control_unique_file']
+
+    files_path = dirname(variants_path)
+    output_path = files_path + '/' + 'dreme_out'
+
+    if program == 'dreme':
+        args = list(map(str, [
+            'dreme-py3',
+            '-p', variants_path,
+            '-n', control_path,
+            '-desc', description,
+            '-mink', min_motif_length,
+            '-maxk', max_motif_length,
+            '-oc', output_path,
+            '-norc'     # "Search only the given primary sequences for motifs":
+            #  excludes searching by reverse complement of sequences
+        ]))
+
+    elif program == 'meme':
+        args = list(map(str, [
+            'meme',
+            variants_path,
+            '-desc', description,
+            '-minw', min_motif_length,
+            '-maxw', max_motif_length,
+            '-nmotifs', 15,
+            '-oc', output_path,
+            # '-revcomp' is not deactivated by default (complementary to norc)
+        ]))
+
+    print('Executing', ' '.join(args))
+    result = subprocess.check_output(args)
+    print(result)
+
+    return result
+
+
+@cacheable
+def get_muts_groups_and_seqs(cds_offset):
     """
     When searing for motifs using unchanged sequence, I assume that there
     are more mutations destroying already existing motifs.
@@ -104,112 +236,7 @@ def find_motifs(variants, name, sequences, min_motif_length, max_motif_length, s
 
     The second seems to be more difficult to detect as the entropy-derived
     probabilities of such events are unfavourable.
-
-    For online meme discriminative analysis collected results will be
-    saved and partitioned into several files according to:
-        slice_by: the maximal count of sequence in a single "part" file
-        max_sequence_length: combined sequence length to adjust the number of
-            sequences to be saved in a "part" file
     """
-    # determine how many sequences can be put in file
-    some_sequence = variants[0].sequence
-    slice_by = min(slice_by, max_sequence_length / len(some_sequence) - 1)
-
-    location = 'motifs_discovery/'
-    location += name
-
-    if not os.path.exists(location):
-        os.makedirs(location)
-    location += '/'
-
-    nearby_mutated_name = location + 'nearby.fa'
-    control_unique_name = location + 'control.fa'
-    control_one_to_one_name = location + 'control_not_unique.fa'
-
-    nearby = []
-    control = []
-
-    part = 0
-    names = {
-        'variant_flanked_file': nearby_mutated_name,
-        'control_uniq_file': control_unique_name,
-        'control_redundant_file': control_one_to_one_name
-    }
-    handles = {
-        name: open('%s_part_%s' % (file_name, part), 'w')
-        for name, file_name in names.items()
-    }
-
-    for i, variant in tqdm(enumerate(variants), total=len(variants)):
-        if (i + 1) % slice_by == 0:
-            handles['variant_flanked_file'].write('\n'.join(nearby))
-            handles['control_uniq_file'].write('\n'.join(list(set(control))))
-            handles['control_redundant_file'].write('\n'.join(control))
-            nearby = []
-            control = []
-
-            for handle in handles.values():
-                handle.close()
-
-            part += 1
-
-            handles = {
-                name: open('%s_part_%s' % (file_name, part), 'w')
-                for name, file_name in names.items()
-            }
-
-        full_gene_sequence = sequences[variant.refseq_transcript]
-        control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
-
-        sequence_nearby_variant = variant.sequence
-        # a gdyby tak: control = ref, badane = mutated?
-        nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
-
-    handles['variant_flanked_file'].write('\n'.join(nearby))
-    handles['control_uniq_file'].write('\n'.join(list(set(control))))
-    handles['control_redundant_file'].write('\n'.join(control))
-    for handle in handles.values():
-        handle.close()
-
-    return 'Ready to online testing!'
-
-    # TODO use meme web version for discriminate analysis with longer motifs
-    args = list(map(str, [
-        #'dreme-py3',
-        '/home/krassowski/meme/bin/dreme',
-        '-p', nearby_mutated_name,
-        '-n', control_unique_name,
-        '-desc', name,
-        '-mink', min_motif_length,
-        '-maxk', max_motif_length,
-        '-oc', location + 'dreme_out',
-        '-norc'     # "Search only the given primary sequences for motifs" - excludes searching by reverse complement of sequences
-    ]))
-    print('Executing', ' '.join(args))
-    result = subprocess.check_output(args)
-    print(result)
-
-
-    args = list(map(str, [
-        #'meme',
-        '/home/krassowski/meme/bin/meme',
-        nearby_mutated_name,
-        '-desc', name,
-        '-minw', min_motif_length,
-        '-maxw', max_motif_length,
-        '-nmotifs', 15,
-        '-oc', location + 'meme_out',
-        #'-revcomp' is not active by default (complementary to norc)
-    ]))
-    print('Executing', ' '.join(args))
-    result = subprocess.check_output(args)
-    print(result)
-
-    return result
-
-
-@cacheable
-def get_muts_groups_and_seqs(cds_offset):
     variants = {}
 
     class Record(object):
@@ -321,36 +348,65 @@ def get_muts_groups_and_seqs(cds_offset):
 
 
 @reporter
-def gtex_on_spidex_for_motifs(_):
-    print('Gtex_on_spidex_for_motifs')
-
+def gtex_on_spidex_motifs_dreme(_):
     cds_offset = 50
     min_motif_length = 8
     max_motif_length = 14
 
-    perform_motifs_search(cds_offset, min_motif_length, max_motif_length)
+    groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
 
-def perform_motifs_search(cds_offset, *args, **kwargs):
-    """Args and kwargs will be passed to find_motifs function"""
-     groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
+    for group_name, variants_list in groups.items():
+        motifs_files = prepare_files_with_motifs(variants_list, group_name, sequences)
 
-    try:
-        for group_name, variants_list in groups.items():
-            out = find_motifs(
-                variants_list,
-                group_name,
-                sequences,
-                min_motif_length,
-                max_motif_length
-            )
-            print(out)
-    except Exception as e:
-        import traceback
-        traceback.print_exc(e)
+        out = find_motifs(
+            motifs_files,
+            min_motif_length,
+            max_motif_length,
+            description=group_name,
+            program='dreme',
+            use_control=False
+        )
+        print(out)
 
-    #print('Finished, entering interactive mode')
-    #from IPython import embed
-    #embed()
+
+@reporter
+def gtex_on_spidex_motifs_dreme_with_control(_):
+    cds_offset = 50
+    min_motif_length = 8
+    max_motif_length = 14
+
+    groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
+
+    for group_name, variants_list in groups.items():
+        motifs_files = prepare_files_with_motifs(variants_list, group_name, sequences)
+
+        out = find_motifs(
+            motifs_files,
+            min_motif_length,
+            max_motif_length,
+            description=group_name,
+            program='dreme',
+            use_control=True
+        )
+        print(out)
+
+
+@reporter
+def gtex_on_spidex_motifs_meme_online(_):
+    cds_offset = 50
+
+    groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
+
+    for group_name, variants_list in groups.items():
+        motifs_files = prepare_files_with_motifs(
+            variants_list,
+            group_name,
+            sequences,
+            slice_by=1000,
+            max_sequence_length=60000
+        )
+        print('Motifs files to upload online written to part files:')
+        print(motifs_files)
 
 
 @reporter
