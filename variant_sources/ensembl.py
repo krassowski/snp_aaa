@@ -16,13 +16,16 @@ from variant_sources import variants_getter
 from variant_sources.biomart import gene_names_from_patacsdb_csv
 
 
-def count_lines(file_object):
+def count_lines(file_object, single_thread=False):
+    command = 'zcat %s | wc -l' if single_thread else 'unpigz -p 8 -c %s'
+
     out = subprocess.Popen(
-        'zcat ' + file_object.filename + ' | wc -l',
+        command % file_object.filename,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT
      ).communicate()[0]
+
     return int(out.partition(b' ')[0])
 
 
@@ -267,7 +270,7 @@ def load_ensembl_variants(gene_names, filters={}):
     ids = []
     for v_id, v in by_name.iteritems():
         c += 1
-        if c % 100 == 0:
+        if c % 5000 == 0:
             out[','.join(ids)] = group
             group = []
             ids = []

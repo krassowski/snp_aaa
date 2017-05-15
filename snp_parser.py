@@ -85,13 +85,11 @@ def all_poly_a_variants(variants_by_gene):
             yield variant
 
 
-def perform_analyses(args):
+def perform_analyses(args, variants_by_gene=None):
     """The main workflow happens here."""
 
     if not args.no_variants:
         variants_by_gene = variants_by_gene_parsed.load()
-    else:
-        variants_by_gene = None
 
     from analyses import REPORTERS
 
@@ -290,6 +288,10 @@ def main(args):
     execute_commands(args)
     execute_subparser_commands(args)
 
+    # TODO: make it into an argument or remove later
+    do_not_dump = True
+    variants = None
+
     # 1. Download and parse
     if args.variants:
 
@@ -305,13 +307,17 @@ def main(args):
 
         print('Raw variants data downloaded, databases reloaded.')
 
-        variants_by_gene_parsed.save(raw_variants_by_gene)
+        if do_not_dump:
+            from parse_variants import parse_variants_by_gene
+            variants = parse_variants_by_gene(raw_variants_by_gene)
+        else:
+            variants_by_gene_parsed.save(raw_variants_by_gene)
 
         print('Variants data parsed and ready to use.')
 
     # 3. Perform chosen analyses and generate reports
     if args.report:
-        perform_analyses(args)
+        perform_analyses(args, variants_by_gene=variants)
     else:
         print('No analyses specified.')
 

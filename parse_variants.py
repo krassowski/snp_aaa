@@ -51,6 +51,7 @@ def get_reference_seq(variant, dna_db, transcript_databases, offset):
     first = reference_sequences[0]
     if not all(first == ref for ref in reference_sequences):
         print('Potentially different references for different transcripts for %s' % variant.refsnp_id)
+        print(reference_sequences)
 
     reference_seq = first
     reference_seq['chrom'] = seq
@@ -448,7 +449,7 @@ def parse_variants_by_gene(variants_by_gene):
     create_dna_db.load_or_create()
 
     # parsing variants start
-    parsing_pool = Pool(12, init_worker, maxtasksperchild=1)
+    parsing_pool = Pool(28, init_worker, maxtasksperchild=1)
 
     for gene, variants in tqdm(parsing_pool.imap_unordered(
             parse_gene_variants,
