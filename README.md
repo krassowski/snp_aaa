@@ -14,13 +14,17 @@ Aim: Select only poly(A) related variants (such that make the track longer, shor
 Full genome:
     Data sources:
         - Raw Ensembl MySQL import data files (genes and variants)
-    Command: ./snp_parser.py --variants ensembl --report poly_aaa
+```bash
+./snp_parser.py --variants ensembl --report poly_aaa
+```
 
 Only genes known to have poly_aaa:
     Data sources:
         - Ensembl's biomart (variants from dbSNP, Cosmic and others),
         - PATACSDB (gene names)
-    Command: ./snp_parser.py --variants biomart --report poly_aaa
+```bash
+./snp_parser.py --variants biomart --report poly_aaa
+```
 
 
 #### CNV vs poly(A)
@@ -49,13 +53,19 @@ Aim: Compare length / lengthening of poly(A) tracks by a variant with its predic
 Data source: SPIDEX
 
 Check effect of mutations changing length of poly_aaa in spidex database
+```bash
 ./snp_parser.py -variants ensembl --report poly_aaa_vs_spidex
+```
 
 Full genome:
-    Command: ./snp_parser.py --variants ensembl --report poly_aaa_vs_spidex
+```bash
+./snp_parser.py --variants ensembl --report poly_aaa_vs_spidex
+```
 
 Only genes known to have poly_aaa:
-    Command: ./snp_parser.py --variants biomart --report poly_aaa_vs_spidex
+```bash
+./snp_parser.py --variants biomart --report poly_aaa_vs_spidex
+```
 
 ##### ZCRB1:c.411G>A
 
@@ -69,7 +79,9 @@ Genome: GRCh37 (Ensembl 75)
 
 Aim: Verification of an assumption about extended predictive capabilities of SPIDEX database.
 
+```bash
 ./snp_parser.py -no_variants --report gtex_on_spidex
+```
 
 
 ##### Motifs of mutations having the same effect determined in GTEx and predicted in SPIDEX:
@@ -78,13 +90,19 @@ Aim: Find sequence motifs (if such exist) of mutations which are determined/pred
 expression in the same way bey both: SPIDEX and GTEX
 
 Use DREME (control=shuffled input sequences):
+```bash
 ./snp_parser.py -n --report gtex_on_spidex_motifs_dreme
+```
 
 Use DREME (control=whole sequences of transcipts of variants where mutation occurred):
+```bash
 ./snp_parser.py -n --report gtex_on_spidex_motifs_dreme_with_control
+```
 
 Only prepare files for online MEME discriminative analysis:
+```bash
 ./snp_parser.py -n --report gtex_on_spidex_motifs_meme_online
+```
 
 
 ## What is the workflow of particular modules? ##
@@ -156,6 +174,11 @@ Installing numba may speed up computations a lot:
 
 ```
 conda install numba
+```
+
+Pigz provides parallel decompression capabilities:
+```
+conda install pigz
 ```
 
 ### Databases download

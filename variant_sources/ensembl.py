@@ -17,7 +17,7 @@ from variant_sources.biomart import gene_names_from_patacsdb_csv
 
 
 def count_lines(file_object, single_thread=False):
-    command = 'zcat %s | wc -l' if single_thread else 'unpigz -p 8 -c %s'
+    command = 'zcat %s | wc -l' if single_thread else 'unpigz -p 8 -c %s | wc -l'
 
     out = subprocess.Popen(
         command % file_object.filename,
