@@ -94,7 +94,6 @@ def load_ensembl_variants(gene_names, filters={}):
         )
     )
     loc = 'ensembl/v88/GRCh37/variation_database/'
-    #loc = 'ensembl/v88/GRCh37/variation_database/head/'
 
     by_id = {}
     keys = types.keys()
@@ -255,5 +254,7 @@ def load_ensembl_variants(gene_names, filters={}):
     #print('Press enter to continue')
     #x = raw_input()
 
-    return {v_id: [v] for v_id, v in by_name.iteritems()}
+    out = {v_id: [v] for v_id, v in by_name.iteritems()}
+    print('Enesmbl variants ready for parsing')
+    return out
     # THERE ARE MANY GENES FOR A SINGLE VARIANT

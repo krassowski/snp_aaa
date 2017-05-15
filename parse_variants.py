@@ -369,12 +369,12 @@ def analyze_poly_a(variant, offset=OFFSET):
 
 
 def create_databases():
-    constructors = [create_cds_db, create_cdna_db, create_dna_db]
+    cache_db_loaders = [create_cds_db, create_cdna_db, create_dna_db]
 
     databases = [
         db.load()
-        for db in constructors
-        ]
+        for db in cache_db_loaders
+    ]
 
     return databases
 
@@ -409,15 +409,13 @@ def parse_gene_variants(item):
             variant.correct = False
 
         #del databases
-
         return variant
 
     variants = map(analyze_variant_here, variants)
+
     correct_variants = filter(lambda variant: variant.correct, variants)
 
     print('Analysed', gene)
-
-    sys.stdout.flush()
 
     gc.collect()
 
@@ -436,7 +434,7 @@ def parse_variants_by_gene(variants_by_gene):
     """Parses variants"""
     variants_count = sum(
         len(variants) for variants in
-        variants_by_gene.values()
+        variants_by_gene.itervalues()
     )
 
     print('Parsing %s variants' % variants_count)
@@ -452,7 +450,7 @@ def parse_variants_by_gene(variants_by_gene):
 
     for gene, variants in tqdm(parsing_pool.imap_unordered(
             parse_gene_variants,
-            variants_by_gene.items()
+            variants_by_gene.iteritems()
     ), total=len(variants_by_gene)):
 
         variants_before_parsing = len(variants_by_gene[gene])
@@ -471,7 +469,7 @@ def parse_variants_by_gene(variants_by_gene):
 
     parsed_variants_count = sum(
         len(variants) for variants in
-        parsed_variants_by_gene.values()
+        parsed_variants_by_gene.itervalues()
     )
 
     print(
