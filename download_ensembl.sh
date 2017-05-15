@@ -6,7 +6,12 @@
 
 ensembl_version=88
 assembly=37
+# When analyzing only somatic mutations one might want to use `Homo_sapiens_somatic.vcf.gz`,
+# instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
+# YOU HAVE TO mv IT LATER TO `Homo_sapiens.vcf.gz`
+vcf="Homo_sapiens.vcf.gz"
 
+mkdir -p ensembl
 cd ensembl
 if [ -d "av$ensembl_version" ]
 then
@@ -26,11 +31,11 @@ else
 
     if (( $assembly > 37 ))
     then
-        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
-        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
+        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf
+        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf.tbi
     else
-        wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz
-        wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/Homo_sapiens.vcf.gz.tbi
+        wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf
+        wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf.tbi
         #if (( $ensembl_version < 76 ))
         #then
         #    echo "Indexing vcf.gz file ..."
