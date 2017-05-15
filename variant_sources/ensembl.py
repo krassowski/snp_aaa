@@ -120,7 +120,7 @@ def load_ensembl_variants(gene_names, filters={}):
     with gzip.open(loc + 'transcript.txt.gz') as f:
         for line in tqdm(f, total=count_lines(f)):
             data = line.split('\t')
-            transcript_strand[data[14]] = data[6]
+            transcript_strand[data[14]] = int(data[6])
 
     with gzip.open(loc + 'transcript_variation.txt.gz') as f:
         for line in tqdm(f, total=count_lines(f)):

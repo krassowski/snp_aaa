@@ -15,6 +15,7 @@ from vcf_parser import ParsingError, VariantCallFormatParser
 from snp_parser import create_dna_db, create_cdna_db, create_cds_db
 
 
+REFERENCE_SEQUENCE_TYPE = 'cds'
 OFFSET = 20
 
 
@@ -22,135 +23,39 @@ def show_pos_with_context(seq, start, end):
     return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
 
 
-class UnknownChromosome(Exception):
-    pass
-
-
-def get_reference_seq(variant, dna_db, transcript_databases, offset):
-
-    chrom = variant.chr_name
-
-    # TODO: document this workaround for range shift in cosmic coordinates
-    #if variant.refsnp_source == 'COSMIC':
-    #    variant.chrom_start += 1
-
+def get_dna_sequence(variant, offset, database):
+    chromosome = variant.chr_name
     try:
-        chrom = dna_db[chrom]
-        seq = chrom.fetch(variant.chrom_start, variant.chrom_end, variant.chrom_strand, offset)
+        chrom_db = database[chromosome]
+        return chrom_db.fetch(variant.chrom_start, variant.chrom_end, variant.chrom_strand, offset)
     except KeyError:
-        raise UnknownChromosome(chrom)
+        print('Unknown chromosome: %s' % chromosome)
 
-    reference_sequences = []
+
+def get_transcripts_sequences(variant, offset, database):
+    reference_sequences = {}
+
     for transcript in variant.affected_transcripts:
-        ref = get_reference_by_transcript(transcript, transcript_databases, offset)
-        if all(seq is None for seq in ref.values()):
-            print('No sequence for %s' % transcript)
+        ref = get_reference_by_transcript(transcript, offset, database)
+
+        if ref:
+            reference_sequences[transcript] = ref
         else:
-            reference_sequences.append(ref)
+            print('No sequence for %s transcript' % transcript)
 
-    if not reference_sequences:
-        return False
-
-    first = reference_sequences[0]
-    if not all(first == ref for ref in reference_sequences):
-        print('Potentially different references for different transcripts for %s' % variant.refsnp_id)
-        print(reference_sequences)
-
-    reference_seq = first
-    reference_seq['chrom'] = seq
-
-    return reference_seq
+    return reference_sequences
 
 
-def get_reference_by_transcript(transcript, databases, offset):
-    reference_seq = {}
+def get_reference_by_transcript(transcript, offset, database):
+    src = database.sequence_type
 
-    transcript_id = transcript.ensembl_id
-    strand = int(transcript.strand)
+    start = getattr(transcript, src + '_start')
+    end = getattr(transcript, src + '_end')
 
-    for db in databases:
-        src = db.sequence_type
-
-        try:
-            start = getattr(transcript, src + '_start')
-            end = getattr(transcript, src + '_end')
-        except IndexError:
-            continue
-
-        seq = db.fetch(transcript_id, strand, start, end, offset)
-
-        reference_seq[src] = seq
-
-    return reference_seq
-
-
-def check_sequence_consistence(reference_seq, ref, alt, offset=OFFSET):
-    """Check if CDS and CDNA sequences are consistent with genomic sequence
-
-    (after removal of dashes from both sides).
-    """
-    ref_seq = reference_seq[ref]
-    alt_seq = reference_seq[alt]
-
-    if not alt_seq or ref_seq:
+    if start is None or end is None:
         return
 
-    seq_len = len(alt_seq)
-    if not alt_seq or not ref_seq:
-        print(
-            'Lack of one of required sequences to '
-            'check consistence: %s or %s' % (ref, alt)
-        )
-        return False
-
-    # remove all '-' signs from the beginning of the sequence
-    alt_seq = alt_seq.lstrip('-')
-    # remember how much was trimmed on the left
-    trim_left = seq_len - len(alt_seq)
-
-    seq_len = len(alt_seq)
-    alt_seq = alt_seq.rstrip('-')
-    trim_right = len(alt_seq) - seq_len
-
-    ref_seq = ref_seq[trim_left:trim_right]
-
-    if alt_seq and ref_seq and alt_seq != ref_seq:
-        print('Sequence "%s" is not consistent with sequence "%s":' % (ref, alt))
-        print(ref + ':')
-        if ref_seq:
-            print(
-                show_pos_with_context(ref_seq, offset, -offset)
-            )
-        print(alt + ':')
-        if alt_seq:
-            print(
-                show_pos_with_context(alt_seq, offset, -offset)
-            )
-        print('')
-
-
-def choose_best_seq(reference_seq):
-
-    # step 0: check if CDS and CDNA sequences are consistent with genomic seq.
-    check_sequence_consistence(reference_seq, 'chrom', 'cds')
-    check_sequence_consistence(reference_seq, 'chrom', 'cdna')
-
-    # It's not a big problem if CDS and CDNA sequences are not identical.
-    # It's expected that the CDNA will be longer but CDS will be
-    # preferred generally.
-    # The problem is if they are completely different!
-    check_sequence_consistence(reference_seq, 'cds', 'cdna')
-
-    if reference_seq['cdna']:
-        chosen = 'cdna'
-    elif reference_seq['cds']:
-        chosen = 'cds'
-    elif reference_seq['chrom']:
-        chosen = 'chrom'
-    else:
-        return False
-
-    return reference_seq[chosen]
+    return database.fetch(transcript.ensembl_id, transcript.strand, start, end, offset)
 
 
 def decode_hgvs_code(code):
@@ -221,29 +126,6 @@ def decode_hgvs_code(code):
     return gene, pos, ref, alt
 
 
-def find_sequence(variant, cds_db, cdna_db, dna_db, offset):
-    try:
-        reference_sequences = get_reference_seq(
-            variant,
-            dna_db,
-            (cdna_db, cds_db),
-            offset
-        )
-    except UnknownChromosome as e:
-        print('Unknown chromosome: ', e.message)
-        return
-
-    if not reference_sequences:
-        return False
-
-    best_sequence = choose_best_seq(reference_sequences)
-
-    if not best_sequence:
-        return
-
-    return best_sequence
-
-
 def determine_mutation(variant, vcf_parser, offset):
     if variant.refsnp_source == 'PhenCode':
         alt_source = 'PhenCode'
@@ -298,19 +180,48 @@ def determine_mutation(variant, vcf_parser, offset):
     }
 
 
-def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=OFFSET):
+def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly_a=False):
     variant.correct = True  # at least now
+    chosen_surrounding_sequence = None
 
-    variant.chrom_start = int(variant.chrom_start)
-    variant.chrom_end = int(variant.chrom_end)
+    if database.sequence_type == 'dna':
+        chosen_surrounding_sequence = get_dna_sequence(variant, offset, database)
+    else:
+        sequences = get_transcripts_sequences(variant, offset, database)
 
-    if not variant.sequence:
-        surrounding_sequence = find_sequence(variant, cds_db, cdna_db, dna_db, offset)
-        if surrounding_sequence:
-            variant.sequence = surrounding_sequence
-        else:
-            print('Cannot determine surrounding sequence for %s variant' % variant)
-            # variant.complete = False
+        best_transcript = None
+        best_score = 0
+
+        for transcript, sequence in sequences.iteritems():
+            accepted, score = poly_a(sequence, offset, len(sequence) - offset)
+
+            if keep_only_poly_a and not accepted:
+                continue
+
+            if score > best_score:
+                best_score = score
+                best_transcript = transcript
+
+        if best_transcript:
+            chosen_surrounding_sequence = sequences[best_transcript]
+
+            if len(sequences) > 1:
+
+                print(
+                    'Multiple transcripts affected by %s. '
+                    'Most severe (in terms of polyA effect) is sequence of transcript %s.'
+                    %
+                    (
+                        variant.refsnp_id,
+                        best_transcript.ensembl_id
+                    )
+                )
+
+    if chosen_surrounding_sequence:
+        variant.sequence = chosen_surrounding_sequence
+    else:
+        print('Cannot determine surrounding sequence for %s variant' % variant)
+        variant.correct = False
 
     # print('Context: ' + show_pos_with_context(seq, offset, -offset))
 
@@ -374,15 +285,14 @@ def analyze_poly_a(variant, offset=OFFSET):
     return variant
 
 
-def create_databases():
-    cache_db_loaders = [create_cds_db, create_cdna_db, create_dna_db]
+def create_database():
+    cache_db_loaders = {
+        'cds': create_cds_db,
+        'cdns': create_cdna_db,
+        'dna': create_dna_db
+    }
 
-    databases = [
-        db.load()
-        for db in cache_db_loaders
-    ]
-
-    return databases
+    return cache_db_loaders[REFERENCE_SEQUENCE_TYPE].load()
 
 
 def parse_gene_variants(item):
@@ -400,21 +310,16 @@ def parse_gene_variants(item):
         default_source='ensembl'
     )
 
-    databases = create_databases()
+    database = create_database()
 
     def analyze_variant_here(variant):
 
         try:
-            analyze_variant(
-                variant,
-                vcf_parser,
-                *databases
-            )
+            analyze_variant(variant, vcf_parser, database)
         except Exception:
             traceback.print_exc()
             variant.correct = False
 
-        #del databases
         return variant
 
     variants = map(analyze_variant_here, variants)
