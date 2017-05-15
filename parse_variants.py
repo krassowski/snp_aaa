@@ -43,7 +43,10 @@ def get_reference_seq(variant, dna_db, transcript_databases, offset):
     reference_sequences = []
     for transcript in variant.affected_transcripts:
         ref = get_reference_by_transcript(transcript, transcript_databases, offset)
-        reference_sequences.append(ref)
+        if all(seq is None for seq in ref.values()):
+            print('No sequence for %s' % transcript)
+        else:
+            reference_sequences.append(ref)
 
     if not reference_sequences:
         return False
