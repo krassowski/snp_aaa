@@ -1,3 +1,4 @@
+from __future__ import print_function
 import gzip
 import json
 import subprocess
@@ -56,14 +57,18 @@ def ensembl(args):
     coding sequences of genes specified with --genes_list and
     filtered with --filters.
     """
-    raw_variants_by_gene = load_ensembl_variants.load_or_create(
+    #raw_variants_by_gene = load_ensembl_variants.load_or_create(
+    #    args.genes_list,
+    #    filters=args.filters
+    #)
+    raw_variants_by_gene = load_ensembl_variants(
         args.genes_list,
         filters=args.filters
     )
     return raw_variants_by_gene
 
 
-@cacheable
+#@cacheable
 def load_ensembl_variants(gene_names, filters={}):
 
     types = OrderedDict(
