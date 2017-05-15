@@ -180,7 +180,7 @@ def append_subparsers(parser):
                 description=name + ' arguments: ' + ', '.join(subparsers.keys())
             )
 
-            for subparser in subparsers.values():
+            for subparser in subparsers.itervalues():
                 subparser.add_to_argparse(_subparser_group)
 
 
@@ -192,7 +192,7 @@ def execute_subparser_commands(args):
 
         subparsers = subparser_group.registry
 
-        for subparser in subparsers.values():
+        for subparser in subparsers.itervalues():
             subparser.execute_commands(args)
 
 
@@ -214,7 +214,7 @@ def execute_commands(args, commands=COMMANDS):
     """Execute commands registered with decorator 'command',
     using provided 'args' arguments - result of argparse parsing.
     """
-    for cmd_args, command_tuple in commands.items():
+    for cmd_args, command_tuple in commands.iteritems():
         _, handler = command_tuple
         try:
             arg = getattr(args, cmd_args[0].lstrip('-'))
@@ -228,6 +228,6 @@ def execute_commands(args, commands=COMMANDS):
 def append_commands(parser, commands=COMMANDS):
     """Add arguments to given parser"""
 
-    for args, command_tuple in commands.items():
+    for args, command_tuple in commands.iteritems():
         kwargs, func = command_tuple
         parser.add_argument(*args, **kwargs)

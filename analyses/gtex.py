@@ -105,7 +105,7 @@ def poly_aaa_vs_expression(variants_by_gene, include_all=False):
             variant.expression = {}
             expression_data_by_alt = bdb.get_by_mutation(variant)
 
-            for alt, expression_data in expression_data_by_alt.items():
+            for alt, expression_data in expression_data_by_alt.iteritems():
 
                 if not expression_data:
                     print('No expression for', variant.refsnp_id)
@@ -160,18 +160,18 @@ def poly_aaa_vs_expression(variants_by_gene, include_all=False):
 
         gtex_report_by_genes += [(
             gene,
-            sum('up' in v.expression.values() for v in poly_a_related_variants),
-            sum('down' in v.expression.values() for v in poly_a_related_variants),
+            sum('up' in v.expression.itervalues() for v in poly_a_related_variants),
+            sum('down' in v.expression.itervalues() for v in poly_a_related_variants),
             sum(
-                sum('up' == expr for expr in v.expression.values())
+                sum('up' == expr for expr in v.expression.itervalues())
                 for v in poly_a_related_variants
             ),
             sum(
-                sum('down' == expr for expr in v.expression.values())
+                sum('down' == expr for expr in v.expression.itervalues())
                 for v in poly_a_related_variants
             ),
-            sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.values()),
-            sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.values())
+            sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.itervalues()),
+            sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.itervalues())
         )]
 
     report(

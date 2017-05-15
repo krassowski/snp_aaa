@@ -8,7 +8,7 @@ class SlottedObject(object):
     __volatile_attributes__ = []
 
     def __init__(self, **kwargs):
-        for key, value in kwargs.items():
+        for key, value in kwargs.iteritems():
             setattr(self, key, value)
 
     def __eq__(self, other):

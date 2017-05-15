@@ -134,7 +134,7 @@ def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=No
         handles['control_unique_file'].write('\n'.join(list(set(control))))
         handles['control_redundant_file'].write('\n'.join(control))
 
-        for handle in handles.values():
+        for handle in handles.itervalues():
             handle.close()
 
 
@@ -146,7 +146,7 @@ def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=No
     def create_handles(part):
         return {
             name: open('%s_part_%s' % (file_name, part) if part is not None else file_name, 'w')
-            for name, file_name in sequences_paths.items()
+            for name, file_name in sequences_paths.iteritems()
         }
 
     handles = create_handles(part)
@@ -194,22 +194,24 @@ def find_motifs(motifs_files, min_motif_length, max_motif_length, description=''
     output_path = files_path + '/' + 'dreme_out'
 
     if program == 'dreme':
-        args = list(map(str, [
-            'dreme-py3',
-            '-p', variants_path
-        ]
-        + (['-n', control_path ] if use_control else []) +
-        [
-            '-desc', description,
-            '-mink', min_motif_length,
-            '-maxk', max_motif_length,
-            '-oc', output_path,
-            '-norc'     # "Search only the given primary sequences for motifs":
-            #  excludes searching by reverse complement of sequences
-        ]))
+        args = (
+            [
+                'dreme-py3',
+                '-p', variants_path
+            ]
+            + (['-n', control_path] if use_control else []) +
+            [
+                '-desc', description,
+                '-mink', min_motif_length,
+                '-maxk', max_motif_length,
+                '-oc', output_path,
+                '-norc'     # "Search only the given primary sequences for motifs":
+                #  excludes searching by reverse complement of sequences
+            ]
+        )
 
     elif program == 'meme':
-        args = list(map(str, [
+        args = [
             'meme',
             variants_path,
             '-desc', description,
@@ -218,8 +220,9 @@ def find_motifs(motifs_files, min_motif_length, max_motif_length, description=''
             '-nmotifs', 15,
             '-oc', output_path,
             # '-revcomp' is not deactivated by default (complementary to norc)
-        ]))
+        ]
 
+    args = list(map(str, args))
     print('Executing', ' '.join(args))
     result = subprocess.check_output(args)
     print(result)
@@ -292,14 +295,14 @@ def get_muts_groups_and_seqs(cds_offset):
     variants_up = []
     variants_inconsistent = []
 
-    transcripts = [r.variant.refseq_transcript for r in variants.values()]
+    transcripts = [r.variant.refseq_transcript for r in variants.itervalues()]
     cds_positions = get_cds_positions(transcripts)
 
     no_cds_cnt = 0
     invalid_seq_cnt = 0
     too_close_cnt = 0
 
-    for r in variants.values():
+    for r in variants.itervalues():
         ensembl_gene = r.variant.ensembl_gene_stable_id.split('.')[0]
         variant = r.variant
         # check that we are one 'offset' away from UTRs
@@ -329,7 +332,7 @@ def get_muts_groups_and_seqs(cds_offset):
     print('Skipped %s variants: sequence retrieved does not mach requested offsets)' % invalid_seq_cnt)
     print('Skipped %s variants: too close CDS edge)' % too_close_cnt)
 
-    for r in variants.values():
+    for r in variants.itervalues():
         variant = r.variant
         if r.valid:
             if not r.inconsistent:
@@ -358,7 +361,7 @@ def gtex_on_spidex_motifs_dreme(_):
 
     groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
 
-    for group_name, variants_list in groups.items():
+    for group_name, variants_list in groups.iteritems():
         motifs_files = prepare_files_with_motifs(variants_list, group_name, sequences)
 
         out = find_motifs(
@@ -380,7 +383,7 @@ def gtex_on_spidex_motifs_dreme_with_control(_):
 
     groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
 
-    for group_name, variants_list in groups.items():
+    for group_name, variants_list in groups.iteritems():
         motifs_files = prepare_files_with_motifs(variants_list, group_name, sequences)
 
         out = find_motifs(
@@ -400,7 +403,7 @@ def gtex_on_spidex_motifs_meme_online(_):
 
     groups, sequences = get_muts_groups_and_seqs.load_or_create(cds_offset)
 
-    for group_name, variants_list in groups.items():
+    for group_name, variants_list in groups.iteritems():
         motifs_files = prepare_files_with_motifs(
             variants_list,
             group_name,
@@ -414,8 +417,6 @@ def gtex_on_spidex_motifs_meme_online(_):
 
 @reporter
 def gtex_on_spidex(_):
-    print('Gtex_on_spidex')
-
     effect_sizes = []
     z_scores = []
 
@@ -455,6 +456,11 @@ def gtex_on_spidex(_):
 
 def iterate_gtex_vs_spidex(**kwargs):
     """
+    Yield records representing GTEx-SPIDEX pairs which are matching
+    (the same position, reference and alternative alleles).
+    
+    All keyword arguments will be used as filtering criteria for records.
+    
     In spidex there are only SNPs (single!)
 
     Definitions for GTEx (from http://www.gtexportal.org/home/documentationPage):
@@ -531,7 +537,7 @@ def iterate_gtex_vs_spidex(**kwargs):
             for record in records
             if all(
                 getattr(record, key) == value
-                for key, value in kwargs.items()
+                for key, value in kwargs.iteritems()
             )
         ]
         record = choose_record(records, variant, variant.alts[0], strict=False)

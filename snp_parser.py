@@ -59,6 +59,7 @@ except ImportError:
     print('Install numba to speed up execution')
     jit = lambda x: x
 
+
 def select_poly_a_related_variants(variants):
     """Return list oof variants occurring in a poly(A) track and variants which will create poly(A) track."""
     from parse_variants import analyze_poly_a
@@ -68,7 +69,7 @@ def select_poly_a_related_variants(variants):
         for variant in map(analyze_poly_a, variants)
         if any([
             data.has or data.will_have
-            for data in variant.poly_aaa.values()
+            for data in variant.poly_aaa.itervalues()
         ])
     ]
 
@@ -128,7 +129,7 @@ def create_arg_parser():
         nargs='+',
         choices=REPORTERS.keys(),
         default=[],
-        help='Analyses to be performed; one or more from: ' + ', '.join(REPORTERS.keys()),
+        help='Analyses to be performed; one or more from: ' + ', '.join(REPORTERS.iterkeys()),
         metavar=''
     )
     # parser.add_argument(

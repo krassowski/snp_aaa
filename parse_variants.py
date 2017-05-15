@@ -3,14 +3,13 @@ from __future__ import print_function
 import gc
 import re
 import signal
-import sys
 import traceback
 from collections import defaultdict
 from multiprocessing import Pool
 
 from tqdm import tqdm
 from poly_a import poly_a
-from snp_parser import vcf_mutation_sources
+from snp_parser import vcf_mutation_sources, jit
 from variant import PolyAAAData
 from vcf_parser import ParsingError, VariantCallFormatParser
 from snp_parser import create_dna_db, create_cdna_db, create_cds_db
@@ -484,6 +483,7 @@ def parse_variants_by_gene(variants_by_gene):
     return parsed_variants_by_gene
 
 
+@jit
 def get_unique_variants(variants):
     """Get only unique variants, with respect to:
         - position in genome,

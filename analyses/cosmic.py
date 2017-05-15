@@ -8,7 +8,7 @@ from analyses import report, reporter
 def get_cosmic_genes_to_load(variants_by_gene):
     cosmic_gene_names = set()
 
-    for gene, variants in variants_by_gene.items():
+    for gene, variants in variants_by_gene.iteritems():
         cosmic_gene_names.update(
             [
                 variant.gene
@@ -21,7 +21,7 @@ def get_cosmic_genes_to_load(variants_by_gene):
 def group_variants_for_cosmic(variants_by_gene):
     # COSMIC specific
     variants_by_gene_by_transcript = {}
-    for gene, variants in variants_by_gene.items():
+    for gene, variants in variants_by_gene.iteritems():
         by_transcript = defaultdict(list)
 
         for variant in variants:
@@ -69,7 +69,7 @@ def summarize_copy_number_expression(variants_by_gene):
     for gene, variants_by_transcript in variants_by_gene_by_transcript.iteritems():
 
         expression = [0, 0, 0]
-        for gene_transcript_id in variants_by_transcript.keys():
+        for gene_transcript_id in variants_by_transcript.iterkeys():
 
             try:
                 expr = cna.get_by_gene_and_transcript(gene_transcript_id)
@@ -81,7 +81,7 @@ def summarize_copy_number_expression(variants_by_gene):
 
         variants = []
 
-        for transcript_variants in variants_by_transcript.values():
+        for transcript_variants in variants_by_transcript.itervalues():
             variants.extend(transcript_variants)
 
         """

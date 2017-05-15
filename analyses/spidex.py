@@ -235,7 +235,7 @@ def spidex_from_list(variants_list):
 
         records = spidex_get_variant(tb, variant)
 
-        for alt, aaa_data in variant.poly_aaa.items():
+        for alt, aaa_data in variant.poly_aaa.iteritems():
 
             if variant.is_insertion(alt) or variant.is_deletion(alt):
                 skipped_indels.append((variant, alt))
@@ -526,7 +526,7 @@ def all_variants_vs_spidex(variants_by_gene):
 
     all_variants = []
 
-    for gene_variants in variants_by_gene.values():
+    for gene_variants in variants_by_gene.itervalues():
         all_variants.extend(gene_variants)
 
     raise NotImplementedError

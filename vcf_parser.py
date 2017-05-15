@@ -42,7 +42,7 @@ class VariantCallFormatParser(object):
         self.vcf_sources = vcf_sources
         self.readers = {
             source: vcf.Reader(filename=data['path'])
-            for source, data in vcf_sources.items()
+            for source, data in vcf_sources.iteritems()
         }
 
     def get_by_transcript(self, transcript, pos, source):

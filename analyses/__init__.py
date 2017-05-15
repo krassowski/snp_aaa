@@ -1,6 +1,10 @@
 import os
 from collections import OrderedDict
 
+import time
+
+import datetime
+
 from snp_parser import VERBOSITY_LEVEL
 
 
@@ -36,8 +40,22 @@ REPORTERS = OrderedDict()
 
 
 def reporter(func):
-    REPORTERS[func.__name__] = func
-    return func
+    name = func.__name__
+
+    def informative_reporter():
+        print('Executing analysis: %s...' % name)
+        start = time.time()
+        result = func()
+        end = time.time()
+        print(
+            'Execution of %s analysis finished after %s'
+            %
+            (name, datetime.timedelta(seconds=end-start))
+        )
+        return result
+
+    REPORTERS[name] = informative_reporter
+    return informative_reporter
 
 
 import zcrb1

@@ -18,7 +18,7 @@ def summarize_poly_aaa_variants(variants_by_gene):
                 data.change,
                 alt
             ]))
-            for alt, data in variant.poly_aaa.items()
+            for alt, data in variant.poly_aaa.iteritems()
         ]
 
     report(
