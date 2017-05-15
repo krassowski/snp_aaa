@@ -5,12 +5,23 @@ The pipeline is written in Python 2.7.
 The major part of the analysis revolves around data from [PATACSDB](https://peerj.com/articles/cs-45/) and expands the research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154).
 
 ### Analyses
+All analyses run on genome assembly GRCh37 and use Ensembl release 88 unless stated otherwise.
 
 #### Poly(A)
 
 Aim: Select only poly(A) related variants (such that make the track longer, shorter or does not change its length).
 
-Data source: Ensembl's biomart (which incorporates data from NCBI and Cosmic too).
+Full genome:
+    Data sources:
+        - Raw Ensembl MySQL import data files (genes and variants)
+    Command: ./snp_parser.py --variants ensembl --report poly_aaa
+
+Only genes known to have poly_aaa:
+    Data sources:
+        - Ensembl's biomart (variants from dbSNP, Cosmic and others),
+        - PATACSDB (gene names)
+    Command: ./snp_parser.py --variants biomart --report poly_aaa
+
 
 #### CNV vs poly(A)
 
@@ -37,14 +48,14 @@ Aim: Compare length / lengthening of poly(A) tracks by a variant with its predic
 
 Data source: SPIDEX
 
+Check effect of mutations changing length of poly_aaa in spidex database
+./snp_parser.py -variants ensembl --report poly_aaa_vs_spidex
+
 Full genome:
-./snp_parser.py -v ensembl --report poly_aaa_vs_spidex
-Genome: GRCh37 (Ensembl 88)
+    Command: ./snp_parser.py --variants ensembl --report poly_aaa_vs_spidex
 
-Only genes known to have poly_aaa
-./snp_parser.py -v biomart --report poly_aaa_vs_spidex
-Genome: GRCh37 (Ensembl 75)
-
+Only genes known to have poly_aaa:
+    Command: ./snp_parser.py --variants biomart --report poly_aaa_vs_spidex
 
 ##### ZCRB1:c.411G>A
 
@@ -58,13 +69,23 @@ Genome: GRCh37 (Ensembl 75)
 
 Aim: Verification of an assumption about extended predictive capabilities of SPIDEX database.
 
-./snp_parser.py -n --report gtex_vs_spidex
-Genome: GRCh37 (Ensembl 75)
+./snp_parser.py -no_variants --report gtex_on_spidex
 
-##### Motifs discovery
 
-Preprare motifs analysis of mutations which are changed in the same direction in both spidex and GTEX
-./snp_parser.py -n --report gtex_vs_spidex_for_motifs
+##### Motifs of mutations having the same effect determined in GTEx and predicted in SPIDEX:
+
+Aim: Find sequence motifs (if such exist) of mutations which are determined/predicted to change
+expression in the same way bey both: SPIDEX and GTEX
+
+Use DREME (control=shuffled input sequences):
+./snp_parser.py -n --report gtex_on_spidex_motifs_dreme
+
+Use DREME (control=whole sequences of transcipts of variants where mutation occurred):
+./snp_parser.py -n --report gtex_on_spidex_motifs_dreme_with_control
+
+Only prepare files for online MEME discriminative analysis:
+./snp_parser.py -n --report gtex_on_spidex_motifs_meme_online
+
 
 ## What is the workflow of particular modules? ##
 
@@ -125,27 +146,25 @@ or
 ```
 pip install -r requirements.txt
 ```
-You will also need to have `samtools` or at least `htslib` installed.
+
+`samtools` or at least `htslib` is required:
+```
+conda install -c bioconda samtools=1.4.1 
+```
+
+Installing numba may speed up computations a lot:
+
+```
+conda install numba
+```
 
 ### Databases download
 
-#### Directories to create
-
+You will be securely asked for you Cosmic login and password to fetch necessary files from their FTP server.
 ```
-mkdir cosmic ensembl
+./download_databases.sh
 ```
-
-#### COSMIC
-To [download exported data](http://cancer.sanger.ac.uk/cosmic/download) from COSMIC databases [registration](https://cancer.sanger.ac.uk/cosmic/register) is required. Links to particular files are included in _data retrieval_ section. All the COSMIC files should go to the `cosmic` directory.
-
-VCF files from Cosmic will need an additional processing - creation of tabix file will be needed. Make sure that you have [htslib](http://www.htslib.org) installed and run:
-```
-./create_tabix.sh filename
-```
-
-#### Ensembl
-
-All files from Ensembl should be placed in `ensembl` directory. Those files could be downloaded using `download_ensembl.sh` bash script (note that it requires edits when using different genome assembly GRCh versions).
+To adjust downloaded files, you need to manually modify relevant scripts.
 
 When analyzing only somatic mutations one might want to use `Homo_sapiens_somatic.vcf.gz` instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
 
