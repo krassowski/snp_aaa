@@ -253,13 +253,29 @@ def load_ensembl_variants(gene_names, filters={}):
             # transcript = v.extract_transcript()
     print('Noname: %s' % no_name)
     print('Nouniqe names: %s' % no_u)
+    print('Remained grouped by name: %s' % len(by_name))
 
     #del by_id
     gc.collect()
     #print('Press enter to continue')
     #x = raw_input()
 
-    out = {v_id: [v] for v_id, v in by_name.iteritems()}
+    # organise variants in groups (not by genes but randomly) for better use of multi-threading
+    out = {}
+    c = 0
+    group = []
+    ids = []
+    for v_id, v in by_name.iteritems():
+        c += 1
+        if c % 100 == 0:
+            out[','.join(ids)] = group
+            group = []
+            ids = []
+        group.append(v)
+        ids.append(v_id)
+
+    out[','.join(ids)] = group
+    # out = {v_id: [v] for v_id, v in by_name.iteritems()}
     print('Enesmbl variants ready for parsing')
     return out
-    # THERE ARE MANY GENES FOR A SINGLE VARIANT
+    # THERE ARE MANY GENES FOR A SINGLE VARIANT, HENCE I DO NOT ORGANISE VARIANTS BY GENES
