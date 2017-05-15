@@ -321,14 +321,17 @@ def analyze_variant(variant, vcf_parser, cds_db, cdna_db, dna_db, offset=OFFSET)
         for attr, value in mutation_data.iteritems():
             old_value = getattr(variant, attr)
 
-            if old_value and old_value != value:
-                print(
-                    'Deduced %s: %s differs from nominal (%s) for %s'
-                    %
-                    (attr, value, old_value, variant)
-                )
-
-            setattr(variant, attr, value)
+            if old_value:
+                if old_value != value:
+                    print(
+                        'Deduced %s: %s differs from nominal (%s) for %s'
+                        %
+                        (attr, value, old_value, variant)
+                    )
+                    setattr(variant, attr, value)
+                # else old_value == value, no need for setattr
+            else:
+                setattr(variant, attr, value)
 
     return True
 
