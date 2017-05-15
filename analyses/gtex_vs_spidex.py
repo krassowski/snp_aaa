@@ -94,7 +94,7 @@ def get_sequence(variant, offset):
     return ''.join(fasta.split('\n')[1:])
 
 
-def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=1000, max_sequence_length=60000):
+def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=None, max_sequence_length=None):
     """Write flanked sequences of variants and relevant control sequences to fasta files.
 
     If slice_by or max_sequence_length is given (it might be desired e.g.
@@ -109,8 +109,9 @@ def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=10
     """
 
     # determine how many sequences can be put in file
-    some_sequence = variants[0].sequence
-    slice_by = min(slice_by, max_sequence_length / len(some_sequence) - 1)
+    if max_sequence_length:
+        some_sequence = variants[0].sequence
+        slice_by = min(slice_by or 0, max_sequence_length / len(some_sequence) - 1)
 
     location = 'motifs_discovery/' + dir_name
 
@@ -195,8 +196,10 @@ def find_motifs(motifs_files, min_motif_length, max_motif_length, description=''
     if program == 'dreme':
         args = list(map(str, [
             'dreme-py3',
-            '-p', variants_path,
-            '-n', control_path,
+            '-p', variants_path
+        ]
+        + (['-n', control_path ] if use_control else []) +
+        [
             '-desc', description,
             '-mink', min_motif_length,
             '-maxk', max_motif_length,
