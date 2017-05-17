@@ -49,7 +49,7 @@ class SlottedObject(object):
             setattr(self, k, v)
 
 
-class Transcript(SlottedObject):
+class AffectedTranscript(SlottedObject):
 
     __slots__ = (
         'ensembl_id',
@@ -57,7 +57,8 @@ class Transcript(SlottedObject):
         'cdna_start',
         'cdna_end',
         'cds_start',
-        'cds_end'
+        'cds_end',
+        'poly_aaa'
     )
 
 
@@ -95,7 +96,7 @@ class BiomartVariant(SlottedObject):
         super(BiomartVariant, self).__init__(**kwargs)
 
     def extract_transcript(self):
-        return Transcript(
+        return AffectedTranscript(
             ensembl_id=self.ensembl_transcript_stable_id,
             strand=self.ensembl_transcript_chrom_strand,
             cdna_start=self.cdna_start,
@@ -134,7 +135,6 @@ class Variant(SlottedObject):
         'gene',
         'sequence',
         'alts',
-        'poly_aaa',
         'correct',
         'affected_transcripts',
         'refseq_transcript'

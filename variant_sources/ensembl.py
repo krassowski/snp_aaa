@@ -11,7 +11,7 @@ from tqdm import tqdm
 from cache import cacheable
 from commands import SourceSubparser
 from parse_variants import get_unique_variants, init_worker
-from variant import Variant, BiomartVariant, Transcript
+from variant import Variant, BiomartVariant, AffectedTranscript
 from variant_sources import variants_getter
 from variant_sources.biomart import gene_names_from_patacsdb_csv
 
@@ -138,7 +138,7 @@ def load_ensembl_variants(gene_names, filters={}):
                         continue
                 variant_id = int(data[1])
 
-                transcript = Transcript(
+                transcript = AffectedTranscript(
                     cds_start=int_or_none(data[6]),
                     cds_end=int_or_none(data[7]),
                     cdna_start=int_or_none(data[8]),

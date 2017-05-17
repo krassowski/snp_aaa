@@ -235,73 +235,77 @@ def spidex_from_list(variants_list):
 
         records = spidex_get_variant(tb, variant)
 
-        for alt, aaa_data in variant.poly_aaa.iteritems():
-
+        to_skip = []
+        for alt in variant.alts:
             if variant.is_insertion(alt) or variant.is_deletion(alt):
                 skipped_indels.append((variant, alt))
-                continue
+                to_skip.append(alt)
 
-            affected_transcripts = list(variant.affected_transcripts)
-            assert len(affected_transcripts) == 1
+        for transcript in variant.affected_transcripts:
 
-            variant_data = [
-                variant.chr_name,
-                variant.chrom_start,
-                variant.chrom_end,
-                variant.ref,
-                alt,
-                variant.ensembl_gene_stable_id,
-                variant.chrom_strand,
-                affected_transcripts[0].ensembl_id,
-                aaa_data.increased,
-                aaa_data.decreased,
-                aaa_data.change,
-                aaa_data.before,
-                aaa_data.after,
-                variant.refsnp_id,
-            ]
+            for alt, aaa_data in transcript.poly_aaa.iteritems():
 
-            relevant_record = None
+                if alt in to_skip:
+                    continue
 
-            try:
-                #print('Records are:', records)
-                relevant_record = choose_record(
-                    records,
-                    variant,
+                variant_data = [
+                    variant.chr_name,
+                    variant.chrom_start,
+                    variant.chrom_end,
+                    variant.ref,
                     alt,
-                    convert_strands=True
-                )
-            except StrandMismatch as e:
-                print(e.message)
-                skipped_strand_mismatch.append(e.args[1])
-            except Intronic as e:
-                print(e.message)
-                skipped_intronic.append(e.args[1])
-            except Mismatch as e:
-                print(e.message)
+                    variant.ensembl_gene_stable_id,
+                    transcript.strand,
+                    transcript.ensembl_id,
+                    aaa_data.increased,
+                    aaa_data.decreased,
+                    aaa_data.change,
+                    aaa_data.before,
+                    aaa_data.after,
+                    variant.refsnp_id,
+                ]
 
-            if not relevant_record:
-                to_test_online.append(
-                    [
-                        variant.chr_name,
-                        variant.chrom_start,
-                        variant.refsnp_id,
-                        variant.ref,
-                        alt or '-'
-                    ]
-                )
+                relevant_record = None
 
-            else:
-                record = relevant_record
+                try:
+                    #print('Records are:', records)
+                    relevant_record = choose_record(
+                        records,
+                        variant,
+                        alt,
+                        convert_strands=True
+                    )
+                except StrandMismatch as e:
+                    print(e.message)
+                    skipped_strand_mismatch.append(e.args[1])
+                except Intronic as e:
+                    print(e.message)
+                    skipped_intronic.append(e.args[1])
+                except Mismatch as e:
+                    print(e.message)
 
-                #print('Record', record)
-                spidex_raw_report.append([variant, alt, aaa_data, record])
+                if not relevant_record:
+                    to_test_online.append(
+                        [
+                            variant.chr_name,
+                            variant.chrom_start,
+                            variant.refsnp_id,
+                            variant.ref,
+                            alt or '-'
+                        ]
+                    )
 
-                record_data = variant_data
-                #print('This record is of type ', record, ': >', record)
-                record_data += [record.dpsi_max_tissue, record.dpsi_zscore]
+                else:
+                    record = relevant_record
 
-                spidex_report.append(record_data)
+                    #print('Record', record)
+                    spidex_raw_report.append([variant, alt, aaa_data, record])
+
+                    record_data = variant_data
+                    #print('This record is of type ', record, ': >', record)
+                    record_data += [record.dpsi_max_tissue, record.dpsi_zscore]
+
+                    spidex_report.append(record_data)
 
     print(
         'Following mutations were nor found in SPIDEX'

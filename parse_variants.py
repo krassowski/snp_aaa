@@ -184,23 +184,21 @@ def determine_mutation(variant, vcf_parser, offset):
 
 def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly_a=False):
     variant.correct = True  # at least now
-    chosen_surrounding_sequence = None
 
     if database.sequence_type == 'dna':
         chosen_surrounding_sequence = get_dna_sequence(variant, offset, database)
+        sequences = {'dna': chosen_surrounding_sequence}
     else:
         sequences = get_transcripts_sequences(variant, offset, database)
 
-        best_transcript = None
-        best_score = 0
+    if keep_only_poly_a:
+        retained_sequences = {}
 
-        skipped = 0
-
-        for transcript, sequence in sequences.iteritems():
+        for source, sequence in sequences.iteritems():
 
             accepted, score = poly_a(sequence, offset, len(sequence) - offset)
-            # assuming that we have only single, pont substitutions
-            worst_mutated_seq = sequence[:offset] + str('A') + sequence[-offset:]
+            # assuming that we have only single, point substitutions
+            worst_mutated_seq = sequence[:offset] + 'A' + sequence[-offset:]
 
             will_have, after_len = poly_a(
                 worst_mutated_seq,
@@ -208,36 +206,20 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
                 len(worst_mutated_seq) - offset
             )
 
-            if keep_only_poly_a and not (accepted or will_have):
-                skipped += 1
-                continue
+            if accepted or will_have:
+                retained_sequences[source] = sequence
 
-            if score > best_score:
-                best_score = score
-                best_transcript = transcript
-
-        if best_transcript:
-            chosen_surrounding_sequence = sequences[best_transcript]
-
-            if len(sequences) > 1:
-
-                print(
-                    'Multiple transcripts affected by %s. '
-                    'Most severe (in terms of polyA effect) is sequence of transcript %s.'
-                    %
-                    (
-                        variant.refsnp_id,
-                        best_transcript.ensembl_id
-                    )
-                )
-
-    if chosen_surrounding_sequence:
-        variant.sequence = chosen_surrounding_sequence
-    else:
-        if skipped == len(sequences):
+        if not retained_sequences:
             print('Variant %s skipped (no chances for poly a)' % variant.refsnp_id)
-        else:
-            print('Cannot determine surrounding sequence for %s variant' % variant.refsnp_id)
+            variant.correct = False
+            return
+
+        sequences = retained_sequences
+
+    if sequences:
+        variant.sequences = sequences
+    else:
+        print('Cannot determine surrounding sequences for %s variant' % variant.refsnp_id)
         variant.correct = False
 
     # print('Context: ' + show_pos_with_context(seq, offset, -offset))
@@ -270,7 +252,15 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
 
 def analyze_poly_a(variant, offset=OFFSET):
 
-    ref_seq = variant.sequence
+    for transcript in variant.affected_transcripts:
+
+        poly_aaa = get_poly_a(variant.sequences[transcript], variant.alts, offset)
+        transcript.poly_aaa = poly_aaa
+
+    return variant
+
+
+def get_poly_a(ref_seq, alts, offset):
 
     # print(variant.refsnp_id)
     # print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
@@ -282,9 +272,9 @@ def analyze_poly_a(variant, offset=OFFSET):
         len(ref_seq) - offset
     )
 
-    variant.poly_aaa = defaultdict(PolyAAAData)
+    poly_aaa = defaultdict(PolyAAAData)
 
-    for alt in variant.alts:
+    for alt in alts:
 
         mutated_seq = ref_seq[:offset] + str(alt) + ref_seq[-offset:]
 
@@ -294,12 +284,12 @@ def analyze_poly_a(variant, offset=OFFSET):
             len(mutated_seq) - offset
         )
 
-        variant.poly_aaa[alt].has = has_aaa
-        variant.poly_aaa[alt].will_have = will_have
-        variant.poly_aaa[alt].before = before_len
-        variant.poly_aaa[alt].after = after_len
+        poly_aaa[alt].has = has_aaa
+        poly_aaa[alt].will_have = will_have
+        poly_aaa[alt].before = before_len
+        poly_aaa[alt].after = after_len
 
-    return variant
+    return poly_aaa
 
 
 def create_database():
