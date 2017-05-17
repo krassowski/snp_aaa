@@ -42,10 +42,10 @@ REPORTERS = OrderedDict()
 def reporter(func):
     name = func.__name__
 
-    def informative_reporter():
+    def informative_reporter(*args, **kwargs):
         print('Executing analysis: %s...' % name)
         start = time.time()
-        result = func()
+        result = func(*args, **kwargs)
         end = time.time()
         print(
             'Execution of %s analysis finished after %s'
