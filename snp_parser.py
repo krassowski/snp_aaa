@@ -289,7 +289,7 @@ def main(args):
     execute_subparser_commands(args)
 
     # TODO: make it into an argument or remove later
-    do_not_dump = True
+    do_not_dump = False
     variants = None
 
     # 1. Download and parse

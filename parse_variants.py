@@ -17,6 +17,8 @@ from snp_parser import create_dna_db, create_cdna_db, create_cds_db
 
 REFERENCE_SEQUENCE_TYPE = 'cds'
 OFFSET = 20
+# speeds up parsing a lot if one is looking only for poly aaa variants
+KEEP_ONLY_POLY_A = False
 
 
 def show_pos_with_context(seq, start, end):
@@ -192,10 +194,22 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
         best_transcript = None
         best_score = 0
 
-        for transcript, sequence in sequences.iteritems():
-            accepted, score = poly_a(sequence, offset, len(sequence) - offset)
+        skipped = 0
 
-            if keep_only_poly_a and not accepted:
+        for transcript, sequence in sequences.iteritems():
+
+            accepted, score = poly_a(sequence, offset, len(sequence) - offset)
+            # assuming that we have only single, pont substitutions
+            worst_mutated_seq = sequence[:offset] + str('A') + sequence[-offset:]
+
+            will_have, after_len = poly_a(
+                worst_mutated_seq,
+                offset,
+                len(worst_mutated_seq) - offset
+            )
+
+            if keep_only_poly_a and not (accepted or will_have):
+                skipped += 1
                 continue
 
             if score > best_score:
@@ -220,7 +234,10 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
     if chosen_surrounding_sequence:
         variant.sequence = chosen_surrounding_sequence
     else:
-        print('Cannot determine surrounding sequence for %s variant' % variant)
+        if skipped == len(sequences):
+            print('Variant %s skipped (no chances for poly a)' % variant.refsnp_id)
+        else:
+            print('Cannot determine surrounding sequence for %s variant' % variant.refsnp_id)
         variant.correct = False
 
     # print('Context: ' + show_pos_with_context(seq, offset, -offset))
@@ -315,7 +332,7 @@ def parse_gene_variants(item):
     def analyze_variant_here(variant):
 
         try:
-            analyze_variant(variant, vcf_parser, database)
+            analyze_variant(variant, vcf_parser, database, keep_only_poly_a=KEEP_ONLY_POLY_A)
         except Exception:
             traceback.print_exc()
             variant.correct = False
