@@ -10,6 +10,7 @@ assembly=37
 # instead of `Homo_sapiens.vcf.gz` since it is an order of magnitude smaller in size.
 # YOU HAVE TO mv IT LATER TO `Homo_sapiens.vcf.gz`
 vcf="Homo_sapiens.vcf.gz"
+wget="wget --continue --no-clobber"
 
 mkdir -p ensembl
 cd ensembl
@@ -25,17 +26,17 @@ else
         assembly="$assembly.$ensembl_version"
     fi
 
-    wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/cds/Homo_sapiens.GRCh$assembly.cds.all.fa.gz
-    wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh$assembly.cdna.all.fa.gz
+    $wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/cds/Homo_sapiens.GRCh$assembly.cds.all.fa.gz
+    $wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/cdna/Homo_sapiens.GRCh$assembly.cdna.all.fa.gz
     # download chromosomes, without pathes
 
     if (( $assembly > 37 ))
     then
-        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf
-        wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf.tbi
+        $wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf
+        $wget ftp://ftp.ensembl.org/pub/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf.tbi
     else
-        wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf
-        wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf.tbi
+        $wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf
+        $wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/variation/vcf/homo_sapiens/$vcf.tbi
         #if (( $ensembl_version < 76 ))
         #then
         #    echo "Indexing vcf.gz file ..."
@@ -47,9 +48,9 @@ else
     fi
 
 
-    #wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.X.fa.gz
-    #wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.Y.fa.gz
-    wget "ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.*.fa.gz" -R "Homo_sapiens.GRCh$assembly.dna.chromosome.H*.fa.gz"
+    #$wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.X.fa.gz
+    #$wget ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.Y.fa.gz
+    $wget "ftp://ftp.ensembl.org/pub/grch$assembly/release-$ensembl_version/fasta/homo_sapiens/dna/Homo_sapiens.GRCh$assembly.dna.chromosome.*.fa.gz" -R "Homo_sapiens.GRCh$assembly.dna.chromosome.H*.fa.gz"
 fi
 
 shopt -s nullglob

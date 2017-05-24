@@ -18,7 +18,7 @@ from snp_parser import create_dna_db, create_cdna_db, create_cds_db
 REFERENCE_SEQUENCE_TYPE = 'cds'
 OFFSET = 20
 # speeds up parsing a lot if one is looking only for poly aaa variants
-KEEP_ONLY_POLY_A = False
+KEEP_ONLY_POLY_A = True
 
 
 def show_pos_with_context(seq, start, end):
@@ -42,6 +42,9 @@ def get_transcripts_sequences(variant, offset, database):
 
         if ref:
             reference_sequences[transcript] = ref
+        elif transcript.ensembl_id.startswith('LRG_'):
+            # Yeah, I know that LRG transcripts do not have sequences in ensembl databases
+            pass
         else:
             print('No sequence for %s transcript' % transcript)
 
@@ -163,16 +166,17 @@ def determine_mutation(variant, vcf_parser, offset):
             return False
 
     # check ref sequence
-    if variant.sequence:
-        seq_ref = variant.sequence[offset:-offset]
+    if variant.sequences:
+        for transcript, sequence in variant.sequences:
+            seq_ref = sequence[offset:-offset]
 
-        if ref != seq_ref:
-            print(
-                '%s says ref is %s, but sequence analysis pointed to %s for %s'
-                % (alt_source, ref, seq_ref, variant.refsnp_id)
-            )
-            if ref == '':
-                print('Probably it\'s just insertion ;)')
+            if ref != seq_ref:
+                print(
+                    '%s says ref is %s, but sequence analysis pointed to %s for %s, %s'
+                    % (alt_source, ref, seq_ref, variant.refsnp_id, transcript)
+                )
+                if ref == '':
+                    print('Probably it\'s just insertion ;)')
 
     return {
         'gene': gene,
@@ -364,7 +368,7 @@ def parse_variants_by_gene(variants_by_gene):
     create_dna_db.load_or_create()
 
     # parsing variants start
-    parsing_pool = Pool(28, init_worker, maxtasksperchild=1)
+    parsing_pool = Pool(7, init_worker, maxtasksperchild=1)
 
     for gene, variants in tqdm(parsing_pool.imap_unordered(
             parse_gene_variants,

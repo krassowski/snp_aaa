@@ -160,10 +160,6 @@ Other dependencies (vcf and tabix parser) might be installed easily with use of 
 ```
 python2 -m pip install -r requirements.txt
 ```
-or
-```
-pip install -r requirements.txt
-```
 
 `samtools` or at least `htslib` is required:
 ```
@@ -233,10 +229,10 @@ You can run basic tests of poly_aaa module simply running it from command line (
 
 ## About
 
-The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
+The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Pawe? Szcz?sny.
 
 
-## Speed startup
+## Speed startup (deprecated)
 
 ```bash
 python2 -OO snp_parser.py -g # generates GTEx key-value database from raw GTEx data, use just once
@@ -246,10 +242,3 @@ python2 -OO snp_parser.py --report list_poly_aaa_variants copy_number_expression
 python2 -OO snp_parser.py --report  poly_aaa_vs_expression --cache load
 ```
 
-```bash
-cd ncbi
-wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/All_20161122.vcf.gz
-wget ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606/VCF/All_20161122.vcf.gz.tbi
-mv All_20161122.vcf.gz 00-All.vcf.gz
-mv All_20161122.vcf.gz.tbi 00-All.vcf.gz.tbi
-```
