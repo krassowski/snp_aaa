@@ -53,7 +53,7 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
         print(query)
 
 
-def draw_plot(plot):
+def draw_plot(plot, format='svg'):
     if DRAW_PLOTS:
         from matplotlib import axes
 
@@ -63,14 +63,14 @@ def draw_plot(plot):
         ]
 
         if type(plot) is ggplot:
-            ggsave(filename=plot.title + '.png', plot=plot)
+            ggsave(filename=plot.title + '.' + format, plot=plot)
             #plot.draw().waitforbuttonpress()
         elif type(plot) in seaborns:
             #plot.fig.show()
-            plot.fig.savefig(plot.ax.title.get_text() + '.png')
+            plot.fig.savefig(plot.ax.title.get_text() + '.' + format)
         elif type(plot) is axes.Subplot:
             #plot.figure.show()
-            plot.figure.savefig(plot.title.get_text() + '.png')
+            plot.figure.savefig(plot.title.get_text() + '.' + format)
         else:
             raise Exception('Unrecognized plot type: %s' % type(plot))
 
@@ -302,7 +302,7 @@ def spidex_from_list(variants_list):
                     record = relevant_record
 
                     #print('Record', record)
-                    spidex_raw_report.append([variant, alt, aaa_data, record])
+                    spidex_raw_report.append([variant.refsnp_id, alt, aaa_data, tuple(record)])
 
                     record_data = variant_data
                     #print('This record is of type ', record, ': >', record)
@@ -362,7 +362,13 @@ def spidex_from_list(variants_list):
     return spidex_raw_report
 
 
-def plot_aaa_vs_spidex(spidex_raw_report):
+def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
+
+    if ignore_repetition:
+        spidex_raw_report = list(set([(v, alt, aaa, rec) for v, alt, aaa, rec in spidex_raw_report]))
+    spidex_raw_report = list([[v, alt, aaa, SpidexRecord(*rec)] for v, alt, aaa, rec in spidex_raw_report])
+
+
 
     def variants_list(aaa_condition):
         return [
@@ -458,27 +464,27 @@ def plot_aaa_vs_spidex(spidex_raw_report):
     df = prepare_data_frame(data_dict)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_estimator=np.mean)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean')
+    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation')
     p.ax.set_ylabel('PSI z-score')
     draw_plot(p)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered')
+    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation [noised with visual jitter]')
     p.ax.set_ylabel('PSI z-score')
     draw_plot(p)
 
     plt.figure(max(plt.get_fignums()) + 1)
     g = sns.boxplot(x='variable', y='value', data=df)
-    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score')
+    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('PSI z-score')
     draw_plot(g)
 
     plt.figure(max(plt.get_fignums()) + 1)
     g = sns.violinplot(x='variable', y='value', data=df)
-    g.axes.set_title('Violin: Poly AAA mutations and PSI z-score')
+    g.axes.set_title('Violin: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('PSI z-score')
     draw_plot(g)
@@ -497,20 +503,20 @@ def plot_aaa_vs_spidex(spidex_raw_report):
     df = prepare_data_frame(data_dict)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_estimator=np.mean)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean')
+    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean | length')
     p.ax.set_xlabel('AAA track length resulting from given mutation')
     p.ax.set_ylabel('PSI z-score')
     draw_plot(p)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered')
+    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered | length')
     p.ax.set_xlabel('AAA length resulting from given mutation [noised with visual jitter]')
     p.ax.set_ylabel('PSI z-score')
     draw_plot(p)
 
     plt.figure(max(plt.get_fignums()) + 1)
     g = sns.boxplot(x='variable', y='value', data=df)
-    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score')
+    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | length')
     g.set_xlabel('AAA track length resulting from given mutation')
     g.set_ylabel('PSI z-score')
     draw_plot(g)
