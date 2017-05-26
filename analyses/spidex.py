@@ -630,7 +630,7 @@ def spidex_aaa_ks_test(variants_groups):
         for name, group in variants_groups.iteritems()
     }
 
-    groups_zscores['all_in_spidex'] = full_spidex_zscore_dist
+    #groups_zscores['all_in_spidex'] = full_spidex_zscore_dist
 
     for group_1, group_2 in combinations(groups_zscores, 2):
         print('%s vs %s:' % (group_1, group_2))
@@ -639,27 +639,32 @@ def spidex_aaa_ks_test(variants_groups):
         ks_result = ks_2samp(z_scores_1, z_scores_2)
         print(ks_result)
 
-    groups_changes = defaultdict(list)
+    groups_new_aaa_lengths = defaultdict(list)
 
     for name, group in variants_groups.iteritems():
         for point in group:
-            change = point['change']
-            groups_changes[change].append(point['dpsi_zscore'])
+            new_aaa_length = point['new_aaa_length']
+            groups_new_aaa_lengths[new_aaa_length].append(point['dpsi_zscore'])
 
-    for change in groups_changes:
+    group = None
+    name = None
+
+    for new_aaa_length in sorted(groups_new_aaa_lengths):
         print(
             'All mutations causing poly_aaa to be <= %s vs all mutations causing poly_aaa to be > %s:'
-            % (change, change)
+            % (new_aaa_length, new_aaa_length)
         )
         z_scores_1 = [
-            zscore for zscore in group
-            for name, group in groups_changes.iteritems()
-            if name <= change
+            zscore
+            for name, group in groups_new_aaa_lengths.iteritems()
+            for zscore in group
+            if name <= new_aaa_length
         ]
         z_scores_2 = [
-            zscore for zscore in group
-            for name, group in groups_changes.iteritems()
-            if name > change
+            zscore
+            for name, group in groups_new_aaa_lengths.iteritems()
+            for zscore in group
+            if name > new_aaa_length
         ]
         ks_result = ks_2samp(z_scores_1, z_scores_2)
         print(ks_result)
