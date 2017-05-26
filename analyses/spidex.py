@@ -1,10 +1,13 @@
 from __future__ import print_function
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 import gzip
+from itertools import combinations
+from operator import itemgetter
 
 from tqdm import tqdm
 
 from analyses import report, reporter
+from scipy.stats import ks_2samp
 from snp_parser import jit
 from snp_parser import all_poly_a_variants
 from snp_parser import SPIDEX_LOCATION
@@ -54,6 +57,7 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
 
 
 def draw_plot(plot, format='svg', size=(19.2, 12)):
+
     if DRAW_PLOTS:
         from matplotlib import axes
         import matplotlib as mpl
@@ -384,15 +388,9 @@ def spidex_from_list(variants_list):
     return spidex_raw_unique
 
 
-def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
+def divide_variants_by_poly_aaa(raw_unique_report):
 
-    #if ignore_repetition:
-    #    spidex_raw_report = list(set([(alt, aaa, rec) for v, alt, aaa, rec in spidex_raw_report]))
-    #spidex_raw_report = list([[None, alt, aaa, SpidexRecord(*rec)] for alt, aaa, rec in spidex_raw_report])
-    #print(spidex_raw_report)
-    spidex_raw_report = list(spidex_raw_report.values())
-    print('Unique points', len(spidex_raw_report))
-
+    spidex_raw_report = list(raw_unique_report.values())
 
     def variants_list(aaa_condition):
         return [
@@ -406,26 +404,35 @@ def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
             if aaa_condition(aaa)
         ]
 
-    variants_increase = variants_list(lambda aaa: aaa.increased)
-    variants_decrease = variants_list(lambda aaa: aaa.decreased)
-    variants_constant = variants_list(lambda aaa: aaa.change == 0)
-    variants_all = variants_list(lambda aaa: True)
+    variants_groups = {
+        'increase': variants_list(lambda aaa: aaa.increased),
+        'decrease': variants_list(lambda aaa: aaa.decreased),
+        'constant': variants_list(lambda aaa: aaa.change == 0),
+        'all': variants_list(lambda aaa: True)
+    }
 
-    aaa_changes = sorted(set([x['change'] for x in variants_all]))
-    aaa_lengths = sorted(set([x['new_aaa_length'] for x in variants_all]))
+    return variants_groups
+
+
+def plot_aaa_vs_spidex(variants_groups):
+
+    variants = variants_groups
+
+    aaa_changes = sorted(set([x['change'] for x in variants['all']]))
+    aaa_lengths = sorted(set([x['new_aaa_length'] for x in variants['all']]))
 
     def density_plot(by='dpsi_zscore', categorical=True):
 
         if categorical:
             data_dict = {
                 'muts increasing AAA': np.array(
-                    [x[by] for x in variants_increase]
+                    [x[by] for x in variants['increase']]
                 ),
                 'muts decreasing AAA': np.array(
-                    [x[by] for x in variants_decrease]
+                    [x[by] for x in variants['decrease']]
                 ),
                 'muts not changing AAA length': np.array(
-                    [x[by] for x in variants_constant]
+                    [x[by] for x in variants['constant']]
                 )
             }
         else:
@@ -433,7 +440,7 @@ def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
                 (change, np.array(
                     [
                         x[by]
-                        for x in variants_all
+                        for x in variants['all']
                         if x['change'] == change
                     ]
                 ))
@@ -441,7 +448,7 @@ def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
                 if len(
                     [
                         x[by]
-                        for x in variants_all
+                        for x in variants['all']
                         if x['change'] == change
                     ]
                 ) > 1
@@ -474,7 +481,7 @@ def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
             change,
             np.array([
                 variant_data['dpsi_zscore']
-                for variant_data in variants_all
+                for variant_data in variants['all']
                 if variant_data['change'] == change
             ])
         )
@@ -518,7 +525,7 @@ def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
             length,
             np.array([
                 variant_data['dpsi_zscore']
-                for variant_data in variants_all
+                for variant_data in variants['all']
                 if variant_data['new_aaa_length'] == length
             ])
         )
@@ -554,19 +561,25 @@ def poly_aaa_vs_spidex(variants_by_gene):
     """Analysis of poly A track changing mutations using data from SPIDEX."""
     aaa_variants_list = all_poly_a_variants(variants_by_gene)
     raw_report = spidex_from_list(aaa_variants_list)
-    plot_aaa_vs_spidex(raw_report)
+
+    print('Unique points', len(raw_report))
+    print('Plotting')
+    variants_groups = divide_variants_by_poly_aaa(raw_report)
+    plot_aaa_vs_spidex(variants_groups)
+    print('ks test')
+    spidex_aaa_ks_test(variants_groups)
 
 
 @reporter
 def all_variants_vs_spidex(variants_by_gene):
     """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
+    raise NotImplementedError
 
     all_variants = []
 
     for gene_variants in variants_by_gene.itervalues():
         all_variants.extend(gene_variants)
 
-    raise NotImplementedError
     # plot_aaa_vs_spidex(all_variants)
 
 
@@ -576,14 +589,11 @@ def get_all_zscore():
     return _get_all_zscores()
 
 
-@jit
+#@jit
 def count_spidex():
-    count = 0
-    f = gzip.open(SPIDEX_LOCATION)
-    for _ in f:
-        count += 1
-    f.close()
-    return count
+    from variant_sources.ensembl import count_lines
+    with gzip.open(SPIDEX_LOCATION) as f:
+        return count_lines(f)
 
 
 def _get_all_zscores():
@@ -597,10 +607,13 @@ def _get_all_zscores():
 
     f = gzip.open(SPIDEX_LOCATION)
     header = next(f)
+    get_dpsi_zscore = itemgetter(headers.index('dpsi_zscore'))
     for line in tqdm(f, total=count-1):
         try:
-            record = SpidexRecord(*line.rstrip('\n').split('\t'))
-            zscores.append(record.dpsi_zscore)
+            data = line.rstrip('\n').split('\t')
+            # record = SpidexRecord(*data)
+            # zscores.append(record.dpsi_zscore)
+            zscores.append(float(get_dpsi_zscore(data)))
         except Exception as e:
             print(e)
             continue
@@ -609,30 +622,66 @@ def _get_all_zscores():
     return zscores
 
 
+def spidex_aaa_ks_test(variants_groups):
+    full_spidex_zscore_dist = get_all_zscore.load_or_create()
+
+    groups_zscores = {
+        name: [point['dpsi_zscore'] for point in group]
+        for name, group in variants_groups.iteritems()
+    }
+
+    groups_zscores['all_in_spidex'] = full_spidex_zscore_dist
+
+    for group_1, group_2 in combinations(groups_zscores, 2):
+        print('%s vs %s:' % (group_1, group_2))
+        z_scores_1 = groups_zscores[group_1]
+        z_scores_2 = groups_zscores[group_2]
+        ks_result = ks_2samp(z_scores_1, z_scores_2)
+        print(ks_result)
+
+    groups_changes = defaultdict(list)
+
+    for name, group in variants_groups.iteritems():
+        for point in group:
+            change = point['change']
+            groups_changes[change].append(point['dpsi_zscore'])
+
+    for change in groups_changes:
+        print(
+            'All mutations causing poly_aaa to be <= %s vs all mutations causing poly_aaa to be > %s:'
+            % (change, change)
+        )
+        z_scores_1 = [
+            zscore for zscore in group
+            for name, group in groups_changes.iteritems()
+            if name <= change
+        ]
+        z_scores_2 = [
+            zscore for zscore in group
+            for name, group in groups_changes.iteritems()
+            if name > change
+        ]
+        ks_result = ks_2samp(z_scores_1, z_scores_2)
+        print(ks_result)
+
+
 @reporter
 def spidex_ks_test(variants_by_gene):
-    """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
-    from scipy.stats import ks_2samp
 
     tb = tabix.open(SPIDEX_LOCATION)
 
-    spidex_zscore_dist = get_all_zscore.load_or_create()
+    full_spidex_zscore_dist = get_all_zscore.load_or_create()
 
-    for gene, variants in variants_by_gene:
+    for gene, variant in variants_by_gene:
 
         variants_z_scores = []
 
-        for variant in variants:
-            variants_z_scores.extend([
-                record.dpsi_zscore
-                for record in spidex_get_variant(tb, variant)
-             ])
+        variants_z_scores.extend([
+            float(record.dpsi_zscore)
+            for record in spidex_get_variant(tb, variant)
+         ])
 
-        ks_result = ks_2samp(spidex_zscore_dist, variants_z_scores)
+        ks_result = ks_2samp(full_spidex_zscore_dist, variants_z_scores)
 
-        print(
-            'Kolmogorov-Smirnov test for %s gene with %s variants analysed'
-            %
-            (gene, len(variants))
-        )
+        print(gene)
         print(ks_result)
