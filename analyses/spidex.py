@@ -53,9 +53,11 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
         print(query)
 
 
-def draw_plot(plot, format='svg'):
+def draw_plot(plot, format='svg', size=(19.2, 12)):
     if DRAW_PLOTS:
         from matplotlib import axes
+        import matplotlib as mpl
+        mpl.rcParams['figure.figsize'] = '%s, %s' % size
 
         seaborns = [
             sns.axisgrid.JointGrid,
@@ -63,13 +65,15 @@ def draw_plot(plot, format='svg'):
         ]
 
         if type(plot) is ggplot:
-            ggsave(filename=plot.title + '.' + format, plot=plot)
+            ggsave(filename=plot.title + '.' + format, plot=plot, width=size[0], height=size[1])
             #plot.draw().waitforbuttonpress()
         elif type(plot) in seaborns:
             #plot.fig.show()
+            plot.fig.set_size_inches(*size)
             plot.fig.savefig(plot.ax.title.get_text() + '.' + format)
         elif type(plot) is axes.Subplot:
             #plot.figure.show()
+            plot.figure.set_size_inches(*size)
             plot.figure.savefig(plot.title.get_text() + '.' + format)
         else:
             raise Exception('Unrecognized plot type: %s' % type(plot))
@@ -222,6 +226,7 @@ def spidex_from_list(variants_list):
     tb = tabix.open(SPIDEX_LOCATION)
 
     spidex_raw_report = []
+    spidex_raw_unique = {}
     spidex_report = []
     to_test_online = []
     skipped_intronic = []
@@ -302,7 +307,24 @@ def spidex_from_list(variants_list):
                     record = relevant_record
 
                     #print('Record', record)
-                    spidex_raw_report.append([variant.refsnp_id, alt, aaa_data, tuple(record)])
+                    spidex_raw_report.append([variant.refsnp_id, alt, aaa_data, record])
+                    spidex_raw_unique[
+                        (
+                            variant.chr_name,
+                            variant.chrom_start,
+                            variant.chrom_end,
+                            variant.ref,
+                            alt,
+                            transcript.strand,
+                            aaa_data.increased,
+                            aaa_data.decreased,
+                            aaa_data.change,
+                            aaa_data.before,
+                            aaa_data.after,
+                            record.dpsi_max_tissue,
+                            record.dpsi_zscore
+                        )
+                    ] = [variant.refsnp_id, alt, aaa_data, record]
 
                     record_data = variant_data
                     #print('This record is of type ', record, ': >', record)
@@ -359,15 +381,17 @@ def spidex_from_list(variants_list):
         ['refsnp_id', 'chrom_strand', 'SPIDEX_strand']
     )
 
-    return spidex_raw_report
+    return spidex_raw_unique
 
 
 def plot_aaa_vs_spidex(spidex_raw_report, ignore_repetition=True):
 
-    if ignore_repetition:
-        spidex_raw_report = list(set([(v, alt, aaa, rec) for v, alt, aaa, rec in spidex_raw_report]))
-    spidex_raw_report = list([[v, alt, aaa, SpidexRecord(*rec)] for v, alt, aaa, rec in spidex_raw_report])
-
+    #if ignore_repetition:
+    #    spidex_raw_report = list(set([(alt, aaa, rec) for v, alt, aaa, rec in spidex_raw_report]))
+    #spidex_raw_report = list([[None, alt, aaa, SpidexRecord(*rec)] for alt, aaa, rec in spidex_raw_report])
+    #print(spidex_raw_report)
+    spidex_raw_report = list(spidex_raw_report.values())
+    print('Unique points', len(spidex_raw_report))
 
 
     def variants_list(aaa_condition):
