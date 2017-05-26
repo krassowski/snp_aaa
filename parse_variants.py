@@ -45,6 +45,12 @@ def get_transcripts_sequences(variant, offset, database):
         elif transcript.ensembl_id.startswith('LRG_'):
             # Yeah, I know that LRG transcripts do not have sequences in ensembl databases
             pass
+        elif ref is False:
+            print(
+                'Variant %s has no sequence coordinates for %s'
+                %
+                (variant.refsnp_id, database.sequence_type)
+            )
         else:
             print('No sequence for %s transcript' % transcript)
 
@@ -58,7 +64,7 @@ def get_reference_by_transcript(transcript, offset, database):
     end = getattr(transcript, src + '_end')
 
     if start is None or end is None:
-        return
+        return False
 
     return database.fetch(transcript.ensembl_id, transcript.strand, start, end, offset)
 
@@ -167,7 +173,7 @@ def determine_mutation(variant, vcf_parser, offset):
 
     # check ref sequence
     if variant.sequences:
-        for transcript, sequence in variant.sequences:
+        for transcript, sequence in variant.sequences.iteritems():
             seq_ref = sequence[offset:-offset]
 
             if ref != seq_ref:
@@ -211,10 +217,11 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
             )
 
             if accepted or will_have:
+                print('Variant with poly A! %s\n %s' % (variant.refsnp_id, sequence))
                 retained_sequences[source] = sequence
 
         if not retained_sequences:
-            print('Variant %s skipped (no chances for poly a)' % variant.refsnp_id)
+            # print('Variant %s skipped (no chances for poly a)' % variant.refsnp_id)
             variant.correct = False
             return
 
@@ -256,9 +263,8 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
 
 def analyze_poly_a(variant, offset=OFFSET):
 
-    for transcript in variant.affected_transcripts:
-
-        poly_aaa = get_poly_a(variant.sequences[transcript], variant.alts, offset)
+    for transcript, sequence in variant.sequences.iteritems():
+        poly_aaa = get_poly_a(sequence, variant.alts, offset)
         transcript.poly_aaa = poly_aaa
 
     return variant
@@ -314,7 +320,8 @@ def parse_gene_variants(item):
     if len(variants_unique_ids) != len(variants):
         raise Exception('Less unique ids than variants!')
 
-    print('Analysing:', len(variants), 'from', gene)
+    #print('Analysing:', len(variants), 'from', gene)
+    print('Analysing:', len(variants), 'variants from some group')
 
     vcf_parser = VariantCallFormatParser(
         vcf_mutation_sources,
@@ -337,7 +344,8 @@ def parse_gene_variants(item):
 
     correct_variants = filter(lambda variant: variant.correct, variants)
 
-    print('Analysed', gene)
+    #print('Analysed', gene)
+    print('Analysed:', len(variants), 'variants from some group')
 
     gc.collect()
 
@@ -368,7 +376,7 @@ def parse_variants_by_gene(variants_by_gene):
     create_dna_db.load_or_create()
 
     # parsing variants start
-    parsing_pool = Pool(7, init_worker, maxtasksperchild=1)
+    parsing_pool = Pool(3, init_worker, maxtasksperchild=1)
 
     for gene, variants in tqdm(parsing_pool.imap_unordered(
             parse_gene_variants,
@@ -406,7 +414,7 @@ def parse_variants_by_gene(variants_by_gene):
     return parsed_variants_by_gene
 
 
-@jit
+#@jit
 def get_unique_variants(variants):
     """Get only unique variants, with respect to:
         - position in genome,
@@ -416,6 +424,7 @@ def get_unique_variants(variants):
     All transcript affected by variants sharing listed properties
     will expand "affected_transcripts" set of returned variant.
     """
+    # adding and removing None is workaround for https://github.com/numba/numba/issues/2152
     unique_variants = set()
 
     for variant in variants:
@@ -427,6 +436,8 @@ def get_unique_variants(variants):
                 if old == variant:
                     old.affected_transcripts.update(variant.affected_transcripts)
                     break
+
+    #unique_variants.remove(None)
 
     return unique_variants
 

@@ -113,7 +113,7 @@ class Intronic(Exception):
     pass
 
 
-@jit
+#@jit
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):
     """
     location: if on of (None, 'intronic', 'exonic') is given,
@@ -242,6 +242,9 @@ def spidex_from_list(variants_list):
                 to_skip.append(alt)
 
         for transcript in variant.affected_transcripts:
+
+            if not transcript.poly_aaa:
+                continue
 
             for alt, aaa_data in transcript.poly_aaa.iteritems():
 

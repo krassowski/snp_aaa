@@ -27,7 +27,7 @@ GRCH_VERSION = 'GRCh37'
 GRCH_SUBVERSION = '13'
 ENSEMBL_VERSION = '88'
 COSMIC_VERSION = '81'
-DBSNP_VERSION = '149'
+DBSNP_VERSION = '150'
 SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
 
 
@@ -69,7 +69,8 @@ def select_poly_a_related_variants(variants):
         for variant in map(analyze_poly_a, variants)
         if any([
             data.has or data.will_have
-            for data in variant.poly_aaa.itervalues()
+            for affected_transcript in variant.sequences.iterkeys()
+            for data in affected_transcript.poly_aaa.itervalues()
         ])
     ]
 

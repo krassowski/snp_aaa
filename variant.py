@@ -25,7 +25,7 @@ class SlottedObject(object):
         )
 
     def __hash__(self):
-        return (
+        return tuple(
             getattr(self, attr_name, None)
             for attr_name in self.__slots__
             if attr_name not in self.__volatile_attributes__
@@ -60,6 +60,9 @@ class AffectedTranscript(SlottedObject):
         'cds_end',
         'poly_aaa'
     )
+
+    __volatile_attributes__ = ['poly_aaa']
+
 
 
 class BiomartVariant(SlottedObject):
@@ -133,7 +136,8 @@ class Variant(SlottedObject):
     attributes = (
         'ref',
         'gene',
-        'sequence',
+        # 'sequence',
+        'sequences',
         'alts',
         'correct',
         'affected_transcripts',
