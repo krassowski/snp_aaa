@@ -17,7 +17,7 @@ gtex_args = AnalysisSubparser(
 )
 
 
-@gtex_args.command('--reload_gtex', action='store_true')
+@gtex_args.command('--reload', action='store_true')
 def reload_gtex(value, args):
     if not value:
         return
@@ -75,7 +75,7 @@ def gtex_over_api(variants_by_gene):
 
 
 @reporter
-def poly_aaa_vs_expression(variants_by_gene, include_all=False):
+def poly_aaa_vs_expression(variants_by_gene):
 
     bdb = ExpressionDatabase(GTEX_DATABASE)
 
@@ -91,26 +91,31 @@ def poly_aaa_vs_expression(variants_by_gene, include_all=False):
     gtex_report = []
     gtex_report_by_genes = []
 
-    for gene, variants in variants_by_gene.iteritems():
+    aaa_variants_list = list(all_poly_a_variants(variants_by_gene))
 
-        poly_a_related_variants = select_poly_a_related_variants(variants)
+    print(
+        'Analysing %s poly_a related variants (out of %s total).'
+        % (len(aaa_variants_list), len(variants_by_gene))
+    )
 
-        print(
-            'Analysing %s poly_a related variants (total: %s) from %s gene.'
-            % (len(poly_a_related_variants), len(variants), gene)
-        )
+    for variant in aaa_variants_list:
 
-        for variant in poly_a_related_variants:
+        for transcript in variant.affected_transcripts:
 
-            variant.expression = {}
-            expression_data_by_alt = bdb.get_by_mutation(variant)
+            if not transcript.poly_aaa:
+                continue
 
-            for alt, expression_data in expression_data_by_alt.iteritems():
+            expression_data_by_alt = bdb.get_by_mutation(variant, transcript)
+
+            transcript.expression = {}
+
+            for alt, aaa_data in transcript.poly_aaa.iteritems():
+
+                expression_data = expression_data_by_alt.get(alt, None)
 
                 if not expression_data:
-                    print('No expression for', variant.refsnp_id)
-                    if not include_all:
-                        continue
+                    #print('No expression for', variant.refsnp_id, 'with alt:', alt)
+                    continue
                 else:
                     print('Expression data for', variant.refsnp_id, 'found:', expression_data)
 
@@ -158,8 +163,8 @@ def poly_aaa_vs_expression(variants_by_gene, include_all=False):
                     alt
                 )]
 
-        gtex_report_by_genes += [(
-            gene,
+        """
+        gtex_report += [(
             sum('up' in v.expression.itervalues() for v in poly_a_related_variants),
             sum('down' in v.expression.itervalues() for v in poly_a_related_variants),
             sum(
@@ -173,6 +178,7 @@ def poly_aaa_vs_expression(variants_by_gene, include_all=False):
             sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.itervalues()),
             sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.itervalues())
         )]
+        """
 
     report(
         'Expression table for variants (based on data from GTEx)',

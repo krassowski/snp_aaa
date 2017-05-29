@@ -58,7 +58,8 @@ class AffectedTranscript(SlottedObject):
         'cdna_end',
         'cds_start',
         'cds_end',
-        'poly_aaa'
+        'poly_aaa',
+        'expression'
     )
 
     __volatile_attributes__ = ['poly_aaa']
@@ -172,7 +173,6 @@ class Variant(SlottedObject):
 
             return '{chrom}:g.{positions}{event}'.format(chrom=self.chr_name, positions=positions, event=event)
 
-    #@property
     def is_deletion(self, alt=None):
         ref_len = len(self.ref)
         if alt:
@@ -180,7 +180,6 @@ class Variant(SlottedObject):
         else:
             return all([ref_len > len(alt) for alt in self.alts])
 
-    #@property
     def is_insertion(self, alt=None):
         ref_len = len(self.ref)
         if alt:
@@ -188,8 +187,9 @@ class Variant(SlottedObject):
         else:
             return all([ref_len < len(alt) for alt in self.alts])
 
-    @property
-    def padded_coords(self):
+    def padded_coords(self, transcript):
+
+        assert transcript in self.affected_transcripts
 
         for alt in self.alts:
 
@@ -199,13 +199,13 @@ class Variant(SlottedObject):
             if len(alt) != len(ref):
                 # right padding
                 if pos == 1:
-                    next_aa = self.sequence[self.offset + 1]
+                    next_aa = self.sequences[transcript][self.offset + 1]
                     ref = ref + next_aa
                     alt = alt + next_aa
                 # left padding
                 else:
                     pos -= 1
-                    prev_aa = self.sequence[self.offset - 1]
+                    prev_aa = self.sequences[transcript][self.offset - 1]
                     ref = prev_aa + ref
                     alt = prev_aa + alt
 

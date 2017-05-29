@@ -46,6 +46,12 @@ Genome: GRCh37 (Ensembl 75)
 
 Takeaway: not enough poly(A) related variants in GTEx as for 2017 to perform this analysis.
 
+Load GTEx expression database:
+
+```bash
+./snp_parser.py gtex --reload
+```
+
 #### SPIDEX vs poly(A)
 
 Aim: Compare length / lengthening of poly(A) tracks by a variant with its predicted impact on splicing inclusion index.

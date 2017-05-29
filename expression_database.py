@@ -1,3 +1,4 @@
+from analyses.spidex import complement, convert_to_strand
 from berkley_hash_set import BerkleyHashSet, BerkleyHashList
 import gzip
 from tqdm import tqdm
@@ -86,29 +87,58 @@ class ExpressedGenes(BerkleyHashList):
 
 class ExpressionDatabase(BerkleyHashSet):
 
-    def get_by_mutation(self, mutation):
+    def get_by_mutation(self, mutation, transcript):
 
         results = {}
 
-        print('Variant: %s' % mutation.refsnp_id)
+        #print('Variant: %s' % mutation.refsnp_id)
 
-        for chrom, pos, ref, alt in mutation.padded_coords:
+        for chrom, pos, ref, alt in mutation.padded_coords(transcript):
 
-            key = '_'.join(map(str, [
-                chrom,
-                pos,
-                ref,
-                alt
-            ])) + '_b37'
+            for shift in (-1, 0, +1):
+                for checked_alt in (alt, convert_to_strand(alt, '-')):
+                    for checked_ref in (ref, convert_to_strand(ref, '-')):
 
-            print('Trying key: %s' % key)
+                        # print(chrom, pos, checked_alt, checked_ref)
+                        key = '_'.join(map(str, [
+                            chrom,
+                            pos + shift,
+                            checked_ref,
+                            checked_alt
+                        ])) + '_b37'
+                        # print(key)
 
-            data = self[key]
+                        # print('Trying key: %s' % key)
 
-            results[alt] = [
-                datum.split(',')
-                for datum in data
-            ]
+                        data = self[key]
+                        if data:
+                            print(data)
+
+                        results[alt] = [
+                            datum.split(',')
+                            for datum in data
+                        ]
+
+        """
+        chrom = 1
+        pos = 693731
+        checked_ref = 'A'
+        checked_alt = 'G'
+        print(chrom, pos, checked_alt, checked_ref)
+        key = '_'.join(map(str, [
+            chrom,
+            pos,
+            checked_ref,
+            checked_alt
+        ])) + '_b37'
+        print(key)
+
+        #print('Trying key: %s' % key)
+
+        data = self[key]
+        if data:
+            print(data)
+        """
 
         return results
 
