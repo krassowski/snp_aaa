@@ -589,15 +589,14 @@ def get_all_zscore():
     return _get_all_zscores()
 
 
-#@jit
 def count_spidex():
     from variant_sources.ensembl import count_lines
-    with gzip.open(SPIDEX_LOCATION) as f:
-        return count_lines(f)
+    return count_lines(SPIDEX_LOCATION)
 
 
 def _get_all_zscores():
     zscores = []
+    from variant_sources.ensembl import fast_gzip_read
 
     print('Counting...')
 
@@ -605,19 +604,18 @@ def _get_all_zscores():
 
     print('Loading...')
 
-    f = gzip.open(SPIDEX_LOCATION)
-    header = next(f)
-    get_dpsi_zscore = itemgetter(headers.index('dpsi_zscore'))
-    for line in tqdm(f, total=count-1):
-        try:
-            data = line.rstrip('\n').split('\t')
-            # record = SpidexRecord(*data)
-            # zscores.append(record.dpsi_zscore)
-            zscores.append(float(get_dpsi_zscore(data)))
-        except Exception as e:
-            print(e)
-            continue
-    f.close()
+    with fast_gzip_read(SPIDEX_LOCATION) as f:
+        header = next(f)
+        get_dpsi_zscore = itemgetter(headers.index('dpsi_zscore'))
+        for line in tqdm(f, total=count-1):
+            try:
+                data = line.rstrip('\n').split('\t')
+                # record = SpidexRecord(*data)
+                # zscores.append(record.dpsi_zscore)
+                zscores.append(float(get_dpsi_zscore(data)))
+            except Exception as e:
+                print(e)
+                continue
 
     return zscores
 

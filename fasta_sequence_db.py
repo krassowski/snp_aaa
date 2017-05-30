@@ -63,7 +63,8 @@ class SequenceDB(BasicSequenceDB):
         print('[database loaded]')
 
     def load(self, index_by, path):
-        with gzip.open(path, 'r') as f:
+        from variant_sources.ensembl import fast_gzip_read
+        with fast_gzip_read(path) as f:
             if index_by == 'transcript':
                 self.load_by_transcript(f)
             else:
@@ -106,6 +107,7 @@ class SequenceDB(BasicSequenceDB):
             start, end = self.parse_coordinates(raw_start, raw_end)
             whole_seq = self.get(name)
 
+            # transcripts cds are always given as converted to appropriate strands, hence it was disabled:
             #if strand == -1:
             #    whole_seq = complement(whole_seq)[::-1]
             #    start, end = len(whole_seq) - end, len(whole_seq) - start

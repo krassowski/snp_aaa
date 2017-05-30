@@ -31,6 +31,8 @@ class SlottedObject(object):
                 element = getattr(self, attr_name, None)
                 if type(element) is dict:
                     element = frozenset(element.items())
+                if type(element) is list:
+                    element = tuple(element)
                 elements.append(element)
         return tuple(elements).__hash__()
 

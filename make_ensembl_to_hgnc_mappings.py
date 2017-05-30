@@ -7,7 +7,8 @@ from biomart_data import BiomartData
 from biomart_data import BiomartDataset
 from tqdm import tqdm 
 
-BIOMART_URL = 'http://www.ensembl.org/biomart'
+#BIOMART_URL = 'http://www.ensembl.org/biomart'
+BIOMART_URL = 'http://grch37.ensembl.org/biomart'
 
 
 def make_mappings(output_db_name='hgnc_by_ensembl.db'):

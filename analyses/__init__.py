@@ -39,23 +39,30 @@ def report(name, data, column_names=()):
 REPORTERS = OrderedDict()
 
 
-def reporter(func):
-    name = func.__name__
+def decorator_maker(storage, decorator_name):
 
-    def informative_reporter(*args, **kwargs):
-        print('Executing analysis: %s...' % name)
-        start = time.time()
-        result = func(*args, **kwargs)
-        end = time.time()
-        print(
-            'Execution of %s analysis finished after %s'
-            %
-            (name, datetime.timedelta(seconds=end-start))
-        )
-        return result
+    def decorator(func):
+        name = func.__name__
 
-    REPORTERS[name] = informative_reporter
-    return informative_reporter
+        def informative_reporter(*args, **kwargs):
+            print('Executing %s: %s...' % (decorator_name, name))
+            start = time.time()
+            result = func(*args, **kwargs)
+            end = time.time()
+            print(
+                'Execution of %s %s finished after %s'
+                %
+                (name, decorator_name, datetime.timedelta(seconds=end-start))
+            )
+            return result
+
+        storage[name] = informative_reporter
+        return informative_reporter
+
+    return decorator
+
+
+reporter = decorator_maker(REPORTERS, 'analysis')
 
 
 import zcrb1

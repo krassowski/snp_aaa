@@ -1,14 +1,17 @@
 from __future__ import print_function
 import gzip
 import json
+import os
 import subprocess
 from collections import defaultdict, OrderedDict
 import gc
+from contextlib import contextmanager
 from multiprocessing import Pool
 
+import io
 from tqdm import tqdm
 
-from cache import cacheable
+from cache import cacheable, args_aware_cacheable
 from commands import SourceSubparser
 from parse_variants import get_unique_variants, init_worker
 from variant import Variant, BiomartVariant, AffectedTranscript
@@ -16,11 +19,44 @@ from variant_sources import variants_getter
 from variant_sources.biomart import gene_names_from_patacsdb_csv
 
 
-def count_lines(file_object, single_thread=False):
+class DummyReadableFileObject(object):
+    def __init__(self, raw):
+        self._raw = raw
+
+    def readable(self):
+        return True
+
+    def writable(self):
+        return False
+
+    def seekable(self):
+        return True
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+
+@contextmanager
+def fast_gzip_read(file_name, single_thread=False):
+    command = 'zcat %s' if single_thread else 'unpigz -p 8 -c %s'
+    print(command % file_name)
+    p = subprocess.Popen(
+        command % file_name,
+        shell=True,
+        bufsize=100000000,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT
+    )
+    yield p.stdout
+
+#0:05:20.291187
+
+@args_aware_cacheable
+def count_lines(file_name, single_thread=False):
     command = 'zcat %s | wc -l' if single_thread else 'unpigz -p 8 -c %s | wc -l'
 
     out = subprocess.Popen(
-        command % file_object.filename,
+        command % file_name,
         shell=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT
@@ -117,32 +153,93 @@ def load_ensembl_variants(gene_names, filters={}):
         return int(x)
 
     transcript_strand = {}
-    with gzip.open(loc + 'transcript.txt.gz') as f:
-        for line in tqdm(f, total=count_lines(f)):
+    filename = loc + 'transcript.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
             transcript_strand[data[14]] = int(data[6])
 
-    with gzip.open(loc + 'transcript_variation.txt.gz') as f:
-        for line in tqdm(f, total=count_lines(f)):
+    accepted_consequences = {
+        'coding_sequence_variant',
+        'synonymous_variant',
+        'stop_retained_variant',
+        'protein_altering_variant',
+        'inframe_variant',
+        'incomplete_terminal_codon_variant',
+        'missense_variant',
+        'non_conservative_missense_variant',
+        'conservative_missense_variant'
+        'stop_gained',
+        'initiator_codon_variant',
+        'inframe_indel',
+        'stop_lost',
+        'inframe_insertion',
+        'conservative_inframe_insertion',
+        'disruptive_inframe_insertion',
+        'inframe_deletion',
+        'disruptive_inframe_deletion',
+        'conservative_inframe_deletion',
+        'frameshift_variant',
+        'plus_1_frameshift_variant',
+        'minus_1_frameshift_variant',
+        'frameshift_elongation',
+        'frame_restoring_variant',
+        'plus_2_frameshift_variant',
+        'frameshift_truncation',
+        'minus_2_frameshift_variant',
+        'terminator_codon_variant',
+        'incomplete_terminal_codon_variant',
+        'stop_lost',
+        'stop_retained_variant',
+    }
+
+    @jit
+    def good_consequence(data):
+        return not accepted_consequences.isdisjoint(data[consequence_pos].split(','))
+
+    @jit
+    def is_spidex_poly_aaa_viable(alleles):
+        return (
+            len(alleles[0]) == 1 and
+            (
+                (
+                    len(alleles[1]) == 1 and
+                    'A' in alleles
+                ) or
+                alleles[1] == 'COSMIC_MUTATION'
+            )
+        )
+
+    """
+        if len(alleles[0]) != 1:
+            return
+        if len(alleles) > 1 and alleles[1] != 'COSMIC_MUTATION':
+            if len(alleles[1]) != 1:
+                return
+            # should i keep it?
+            if not ('A' in alleles):
+                return
+        return True
+    """
+    filename = loc + 'transcript_variation.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
-            if data[somatic_pos] == '1' and 'coding_sequence_variant' in data[consequence_pos].split(','):
+            #if data[somatic_pos] == '1' and good_consequence(data):
+            if good_consequence(data):
                 alleles = data[3].split('/')
-                ref = alleles[0]
-                if len(ref) != 1:
+
+                if not is_spidex_poly_aaa_viable(alleles):
                     continue
-                if len(alleles) > 1 and alleles[1] != 'COSMIC_MUTATION':
-                    if len(alleles[1]) != 1:
-                        continue
-                    # should i keep it?
-                    if all(allele != 'A' for allele in alleles):
-                        continue
+
+                ref = alleles[0]
                 variant_id = int(data[1])
 
                 transcript = AffectedTranscript(
                     cds_start=int_or_none(data[6]),
                     cds_end=int_or_none(data[7]),
-                    cdna_start=int_or_none(data[8]),
-                    cdna_end=int_or_none(data[9]),
+                    # cdna_start=int_or_none(data[8]),
+                    # cdna_end=int_or_none(data[9]),
                     strand=transcript_strand[data[2]],
                     ensembl_id=data[2]
                 )
@@ -165,17 +262,13 @@ def load_ensembl_variants(gene_names, filters={}):
                         )
                         continue
 
-                    v.affected_transcripts.add(
-                        transcript
-                    )
+                    v.affected_transcripts.add(transcript)
                     # if v.ensembl_transcript_stable_id == data[2]:
                     #    v
                 else:
                     v = Variant(
                         allele_1=ref,
-                        affected_transcripts={
-                            transcript
-                        }
+                        affected_transcripts={transcript}
                     )
                     by_id[variant_id] = v
     gc.collect()
@@ -184,15 +277,17 @@ def load_ensembl_variants(gene_names, filters={}):
 
     seq_region = {}
     # seq_region_id, name, cord_system_fk
-    with gzip.open(loc + 'seq_region.txt.gz') as f:
-        for line in tqdm(f, total=count_lines(f)):
+    filename = loc + 'seq_region.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
             seq_region[int(data[0])] = data[1]
 
     sources = {}
     # 'source_id', 'name', 'version', 'description', 'url', 'type', 'somatic_status', 'data_types'
-    with gzip.open(loc + 'source.txt.gz') as f:
-        for line in tqdm(f, total=count_lines(f)):
+    filename = loc + 'source.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
             sources[int(data[0])] = data[1]
     gc.collect()
@@ -222,8 +317,9 @@ def load_ensembl_variants(gene_names, filters={}):
         'display',
     ]
 
-    with gzip.open(loc + 'variation_feature.txt.gz') as f:
-        for line in tqdm(f, total=count_lines(f)):
+    filename = loc + 'variation_feature.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
             if int(data[0]) in by_id:
                 v = by_id[int(data[0])]

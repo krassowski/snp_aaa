@@ -22,7 +22,7 @@ KEEP_ONLY_POLY_A = True
 
 
 def show_pos_with_context(seq, start, end):
-    return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
+    return seq[:start] + '>' + seq[start:end] + '<' + seq[end:]
 
 
 def get_dna_sequence(variant, offset, database):
@@ -37,22 +37,29 @@ def get_dna_sequence(variant, offset, database):
 def get_transcripts_sequences(variant, offset, database):
     reference_sequences = {}
 
+    any_ref = False
+
     for transcript in variant.affected_transcripts:
         ref = get_reference_by_transcript(transcript, offset, database)
 
         if ref:
             reference_sequences[transcript] = ref
+            any_ref = True
         elif transcript.ensembl_id.startswith('LRG_'):
+            # TODO: check how many of them there are
             # Yeah, I know that LRG transcripts do not have sequences in ensembl databases
             pass
         elif ref is False:
-            print(
-                'Variant %s has no sequence coordinates for %s'
-                %
-                (variant.refsnp_id, database.sequence_type)
-            )
+            pass
         else:
             print('No sequence for %s transcript' % transcript)
+
+    if not any_ref:
+        print(
+            'Variant %s has no sequence coordinates for any of its transcripts (using %s)'
+            %
+            (variant.refsnp_id, database.sequence_type)
+        )
 
     return reference_sequences
 
@@ -157,7 +164,12 @@ def determine_mutation(variant, vcf_parser, offset):
                 raise ParsingError('No VCF data for %s.' % variant.refsnp_id)
 
             analysed_vcf_record = vcf_data[0]
-            pos, ref, alts = vcf_parser.parse(analysed_vcf_record, variant.refsnp_source)
+            strand = list(variant.affected_transcripts)[0].strand
+            for transcript in variant.affected_transcripts:
+                if strand != transcript.strand:
+                    print('Stand mismatch for')
+                    print(variant)
+            pos, ref, alts = vcf_parser.parse(analysed_vcf_record, variant.refsnp_source, strand)
             gene = vcf_parser.get_gene(analysed_vcf_record)
         except ParsingError as e:
             print(
@@ -204,7 +216,7 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
     if keep_only_poly_a:
         retained_sequences = {}
 
-        for source, sequence in sequences.iteritems():
+        for transcript, sequence in sequences.iteritems():
 
             accepted, score = poly_a(sequence, offset, len(sequence) - offset)
             # assuming that we have only single, point substitutions
@@ -217,8 +229,9 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
             )
 
             if accepted or will_have:
-                print('Variant with poly A! %s\n %s' % (variant.refsnp_id, sequence))
-                retained_sequences[source] = sequence
+                print('Variant with poly A: %s, %s, %s' % (variant.refsnp_id, transcript.ensembl_id, transcript.strand))
+                print(show_pos_with_context(sequence, offset, -offset))
+                retained_sequences[transcript] = sequence
 
         if not retained_sequences:
             # print('Variant %s skipped (no chances for poly a)' % variant.refsnp_id)
@@ -232,8 +245,6 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
     else:
         print('Cannot determine surrounding sequences for %s variant' % variant.refsnp_id)
         variant.correct = False
-
-    # print('Context: ' + show_pos_with_context(seq, offset, -offset))
 
     if not (variant.ref and variant.alts and variant.gene and variant.chrom_start):
 

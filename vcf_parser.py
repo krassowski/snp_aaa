@@ -88,6 +88,8 @@ class VariantCallFormatParser(object):
         record_id = variant.refsnp_id
 
         if source not in self.readers:
+            print('Unknown source: %s' % source)
+            print(variant)
             source = self.default_source
 
             data = []
@@ -149,7 +151,7 @@ class VariantCallFormatParser(object):
 
         return vcf_data
 
-    def parse(self, vcf_data, variant_source):
+    def parse(self, vcf_data, variant_source, strand):
         """Parse VCF data, retrieved with retrieve() func, with
         compliance to VCF 4.3 specification, particularly:
 
@@ -208,11 +210,20 @@ class VariantCallFormatParser(object):
             # 1	91404597	COSM913148	AAGAATTT	A	.	.	GENE=ZNF644;STRAND=-;CDS=c.2307_2313delAAATTCT;AA=p.L769fs*36;CNT=1
             # first left padding is removed (before this if) (so we have AGAATTT),
             # then we get reversed complement to obtain AAATTCT
-            strands = vcf_data.INFO['STRAND']
+            if 'STRAND' in vcf_data.INFO:
+                strands = vcf_data.INFO['STRAND']
 
-            if len(strands) > 1:
-                print('More than one strand specified: ' % strands)
-            if strands[0] == '-':
+                if len(strands) > 1:
+                    print('More than one strand specified: ' + ', '.join(map(str, strands)))
+                    print(vcf_data, strands, variant_source)
+
+                vcf_strand = -1 if strands[0] == '-' else 1
+
+                if strand != vcf_strand:
+                    print('Given strand does not match VCF strand for')
+                    print(vcf_data, vcf_strand, strand, variant_source)
+
+            if strand == -1:
                 ref = complement(ref)[::-1]
                 alts = [complement(alt)[::-1] for alt in alts]
 

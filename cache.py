@@ -14,13 +14,17 @@ class cacheable(object):
     def __init__(self, func):
         self.func = func
         self.display_name = func.__name__.replace('_', ' ').title()
-        self.cache_name = '.cache:' + func.__name__
+        self.cache_name = '.cache/' + func.__name__
+
+    def file_name(self, *args, **kwargs):
+        return self.cache_name
 
     def save(self, *args, **kwargs):
         result = self.create(*args, **kwargs)
         print('"' + self.display_name + '" saved to cache')
+        file_name = self.file_name(*args, **kwargs)
 
-        with open(self.cache_name, 'wb') as f:
+        with open(file_name, 'wb') as f:
             pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         return result
@@ -39,8 +43,9 @@ class cacheable(object):
         If args or kwargs are specified, those will be used
         during decorated function execution.
         """
-        if os.path.exists(self.cache_name):
-            return self.load()
+        file_name = self.file_name(*args, **kwargs)
+        if os.path.exists(file_name):
+            return self.load(*args, **kwargs)
         else:
             print(
                 'Cache data for %s do not exists - running %s' %
@@ -55,9 +60,10 @@ class cacheable(object):
                 )
                 raise e
 
-    def load(self):
+    def load(self, *args, **kwargs):
         print('Loading %s' % self.display_name)
-        with open(self.cache_name, 'rb') as f:
+        file_name = self.file_name(*args, **kwargs)
+        with open(file_name, 'rb') as f:
             try:
                 result = pickle.load(f)
             except AttributeError as e:
@@ -69,3 +75,19 @@ class cacheable(object):
                     (self.display_name, e.message)
                 )
             return result
+
+
+class args_aware_cacheable(cacheable):
+
+    def safe_name(self, name):
+        import string
+        safe_chars = "_. %s%s" % (string.ascii_letters, string.digits)
+        return ''.join([(c if c in safe_chars else '_')for c in str(name)])
+
+    def file_name(self, *args, **kwargs):
+        args_repr = ', '.join(map(self.safe_name, args))
+        kwargs_repr = ', '.join('%s=%s' % (self.safe_name(k), self.safe_name(v)) for k, v in kwargs.iteritems())
+        return '%s(%s; %s)' % (self.cache_name, args_repr, kwargs_repr)
+
+    def __call__(self, *args, **kwargs):
+        return self.load_or_create(*args, **kwargs)

@@ -7,6 +7,10 @@ import os
 import sys
 import traceback
 
+import time
+
+import datetime
+
 biomart_fork_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
 sys.path.insert(0, biomart_fork_path)
 
@@ -39,16 +43,20 @@ vcf_mutation_sources = {
     'dbSNP': {
         'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
         GRCH_SUBVERSION + '/00-All.vcf.gz',
-        'given_as_positive_strand_only': False
+        'given_as_positive_strand_only': True
     },
     'ClinVar': {
         'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
         GRCH_SUBVERSION + '/00-All.vcf.gz',
-        'given_as_positive_strand_only': False
+        'given_as_positive_strand_only': True
     },
     'ensembl': {
         'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
-        'given_as_positive_strand_only': False
+        'given_as_positive_strand_only': True
+    },
+    'ESP': {
+        'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
+        'given_as_positive_strand_only': True
     }
 }
 
@@ -296,6 +304,8 @@ def main(args):
     # 1. Download and parse
     if args.variants:
 
+        start = time.time()
+
         method = args.variants
 
         from variant_sources import VARIANTS_GETTERS
@@ -314,7 +324,14 @@ def main(args):
         else:
             variants_by_gene_parsed.save(raw_variants_by_gene)
 
+        end = time.time()
+        print(
+            'Variants handling finished after %s'
+            %
+            datetime.timedelta(seconds=end-start)
+        )
         print('Variants data parsed and ready to use.')
+
 
     # 3. Perform chosen analyses and generate reports
     if args.report:
@@ -333,3 +350,12 @@ if __name__ == '__main__':
         profile.run('main(parsed_args)')
     else:
         main(parsed_args)
+
+    def say(text):
+        # libttspico-utils
+        import os
+        os.system('pico2wave -w=/tmp/x.wav "%s"' % text)
+        os.system('aplay /tmp/x.wav')
+        os.system('rm /tmp/x.wav')
+
+    say('Computations have just finished!')
