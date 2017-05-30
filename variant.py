@@ -25,11 +25,14 @@ class SlottedObject(object):
         )
 
     def __hash__(self):
-        return tuple(
-            getattr(self, attr_name, None)
-            for attr_name in self.__slots__
-            if attr_name not in self.__volatile_attributes__
-        ).__hash__()
+        elements = []
+        for attr_name in self.__slots__:
+            if attr_name not in self.__volatile_attributes__:
+                element = getattr(self, attr_name, None)
+                if type(element) is dict:
+                    element = frozenset(element.items())
+                elements.append(element)
+        return tuple(elements).__hash__()
 
     def __repr__(self):
         kwargs = {}
@@ -63,7 +66,6 @@ class AffectedTranscript(SlottedObject):
     )
 
     __volatile_attributes__ = ['poly_aaa']
-
 
 
 class BiomartVariant(SlottedObject):
