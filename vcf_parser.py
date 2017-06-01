@@ -31,19 +31,20 @@ class ParsingError(Exception):
 
 class VariantCallFormatParser(object):
 
-    def __init__(self, vcf_sources, default_source=None, prepend_chr=False):
+    def __init__(self, vcf_sources, default_source=None):
         """
         vcf_locations: mappings name -> location for VCF files to use
         default_source: name of default VCF file to be used
-        preprend_chr: use long (chr1) chromosome names instead of short (1)
         """
-        self.prepend_chr = prepend_chr
         self.default_source = default_source
         self.vcf_sources = vcf_sources
-        self.readers = {
-            source: vcf.Reader(filename=data['path'])
-            for source, data in vcf_sources.iteritems()
-        }
+        self.readers = {}
+        for source, data in vcf_sources.iteritems():
+            if not data['is_alias']:
+                self.readers[source] = vcf.Reader(filename=data['path'])
+        for source, data in vcf_sources.iteritems():
+            if data['is_alias']:
+                self.readers[source] = self.readers[data['aliased_vcf']]
 
     def get_by_transcript(self, transcript, pos, source):
 
@@ -67,52 +68,41 @@ class VariantCallFormatParser(object):
         Returns:
             list of vcf records as returned by vcf.fetch()
         """
-        chrom = str(variant.chr_name)
-        if self.prepend_chr and not chrom.startswith('chr'):
-            chrom = 'chr' + chrom
-        pos = [chrom, variant.chrom_start, variant.chrom_end]
-
         # vcf.parser uses 0-based coordinates:
         # http://pyvcf.readthedocs.org/en/latest/_modules/vcf/parser.html?highlight=coordinates
         # ensembl uses 1-based coordinates:
         # http://www.ensembl.org/info/docs/api/core/core_tutorial.html#coordinates
 
+        # (for performance reasons incorporated into a list creation, left as a comment)
         # to get to vcf stored data by vcf reader, change coordinates to 0-based
-        pos[1] -= 1
-        pos[2] -= 1
-
+        # pos[1] -= 1
+        # pos[2] -= 1
         # and represent them as a range
-        pos[2] += 1
+        # pos[2] += 1
 
-        source = source if source else variant.refsnp_source
-        record_id = variant.refsnp_id
+        pos = [variant.chr_name, variant.chrom_start - 1, variant.chrom_end]
+
+        # quite common this will happen when variant is an insertion
+        if pos[1] == pos[2]:
+            pos[1] -= 1
+
+        if not source:
+            source = variant.refsnp_source
 
         if source not in self.readers:
             print('Unknown source: %s' % source)
             print(variant)
-            source = self.default_source
 
-            data = []
-            try:
-                for transcript in variant.affected_transcripts:
-                    data.extend(
-                        self.get_by_transcript(transcript, pos, source)
-                    )
-            except ParsingError as e:
-                print(variant)
-                raise e
+            source = self.default_source
 
             if not source:
                 raise ParsingError(
                     'Either source or default_source must be present'
                     ' to choose vcf file to look up'
                 )
-            if data:
-                print('Guessed VCF record for %s.' % variant.refsnp_id)
-            return data
 
         if require_id_match:
-            return self.get_by_id(source, pos, record_id)
+            return self.get_by_id(source, pos, variant.refsnp_id)
         else:
             return self.get_by_pos(source, pos)
 

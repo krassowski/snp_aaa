@@ -46,10 +46,12 @@ def reload_gtex(value, args):
 @reporter
 def gtex_over_api(variants_by_gene):
     import requests
+    api_report = []
 
     for variant in all_poly_a_variants(variants_by_gene):
 
         server = 'http://rest.ensembl.org'
+        # server = 'http://grch37.rest.ensembl.org/' GRCH 37 has no eqtls implemented
         ext = '/eqtl/variant_name/homo_sapiens/%s?statistic=p-value;content-type=application/json' % variant.refsnp_id
 
         try:
@@ -66,12 +68,56 @@ def gtex_over_api(variants_by_gene):
 
             decoded = r.json()
 
-            if not decoded['error']:
-                print('Found sth!')
-                print(repr(decoded))
+            if 'error' not in decoded:
+                print('Got data for %s' % variant.refsnp_id)
+                # print(repr(decoded))
+                for datum in decoded:
+                    for transcript in variant.affected_transcripts:
+                        for alt, aaa_data in transcript.poly_aaa.iteritems():
+                            report_chunk = (
+                                variant.refsnp_id,
+                                datum['tissue'], datum['value'], datum['gene'],
+                                aaa_data.increased,
+                                aaa_data.decreased,
+                                aaa_data.change,
+                                variant.chr_name,
+                                variant.chrom_start,
+                                variant.ref,
+                                alt,
+                                transcript.strand,
+                                transcript.ensembl_id,
+                                transcript.cds_start,
+                                transcript.cds_end
+                            )
+                            api_report += [report_chunk]
 
         except Exception:
             pass
+    """
+
+    report(
+        'API expression table for variants (based on data from gtex)',
+        ['\t'.join(map(str, line)) for line in gtex_report],
+        [
+            'variant', 'expression+', 'expression-', 'trend',
+            'aaa+', 'aaa-', 'aaa_change',
+            'chrom', 'pos', 'ref', 'alt',
+            'strand', 'transcript', 'cds_start', 'cds_end'
+        ]
+    )
+    """
+
+    report(
+        'API expression table for variants with tissues (based on data from gtex)',
+        ['\t'.join(map(str, line)) for line in api_report],
+        [
+            'variant', 'tissue', 'slope', 'gene',
+            'aaa+', 'aaa-', 'aaa_change',
+            'chrom', 'pos', 'ref', 'alt',
+            'strand', 'transcript', 'cds_start', 'cds_end'
+        ]
+    )
+
 
 
 @reporter
@@ -90,6 +136,7 @@ def poly_aaa_vs_expression(variants_by_gene):
 
     gtex_report = []
     gtex_report_by_genes = []
+    gtex_report_with_tissue = []
 
     aaa_variants_list = list(all_poly_a_variants(variants_by_gene))
 
@@ -122,11 +169,31 @@ def poly_aaa_vs_expression(variants_by_gene):
                 expression_up = []
                 expression_down = []
 
-                for tissue, slope in expression_data:
+                data = transcript.poly_aaa[alt]
+
+                for tissue_name, slope, gene in expression_data:
+                    gtex_report_with_tissue.append(
+                        (
+                            variant.refsnp_id,
+                            tissue_name, slope, gene,
+                            data.increased,
+                            data.decreased,
+                            data.change,
+                            variant.chr_name,
+                            variant.chrom_start,
+                            variant.ref,
+                            alt,
+                            transcript.strand,
+                            transcript.ensembl_id,
+                            transcript.cds_start,
+                            transcript.cds_end
+                        )
+                    )
+                    slope = float(slope)
                     if slope > 0:
-                        expression_up += [tissue]
+                        expression_up += [tissue_name]
                     elif slope < 0:
-                        expression_down += [tissue]
+                        expression_down += [tissue_name]
 
                 # is this rather up?
                 if len(expression_up) > len(expression_down):
@@ -149,10 +216,9 @@ def poly_aaa_vs_expression(variants_by_gene):
                 expression_up_in_x_cases = len(expression_up)
                 expression_down_in_x_cases = len(expression_down)
 
-                data = variant.poly_aaa[alt]
-                variant.expression[alt] = expression_trend
+                transcript.expression[alt] = expression_trend
 
-                gtex_report += [(
+                report_chunk = (
                     variant.refsnp_id,
                     expression_up_in_x_cases,
                     expression_down_in_x_cases,
@@ -160,8 +226,16 @@ def poly_aaa_vs_expression(variants_by_gene):
                     data.increased,
                     data.decreased,
                     data.change,
-                    alt
-                )]
+                    variant.chr_name,
+                    variant.chrom_start,
+                    variant.ref,
+                    alt,
+                    transcript.strand,
+                    transcript.ensembl_id,
+                    transcript.cds_start,
+                    transcript.cds_end
+                )
+                gtex_report += [report_chunk]
 
         """
         gtex_report += [(
@@ -181,22 +255,35 @@ def poly_aaa_vs_expression(variants_by_gene):
         """
 
     report(
-        'Expression table for variants (based on data from GTEx)',
+        'expression table for variants (based on data from gtex)',
         ['\t'.join(map(str, line)) for line in gtex_report],
         [
             'variant', 'expression+', 'expression-', 'trend',
-            'aaa+', 'aaa-', 'aaa change'
+            'aaa+', 'aaa-', 'aaa_change',
+            'chrom', 'pos', 'ref', 'alt',
+            'strand', 'transcript', 'cds_start', 'cds_end'
         ]
     )
 
     report(
-        'Expression table for genes (based on data from GTEx)',
-        ['\t'.join(map(str, line)) for line in gtex_report_by_genes],
-        # note: alleles is not the same as variants
+        'expression table for variants with tissues (based on data from gtex)',
+        ['\t'.join(map(str, line)) for line in gtex_report_with_tissue],
         [
-            'gene', 'alleles with expression+', 'alleles with expression-',
-            'variants with expression+', 'variants with expression-', '#aaa+', '#aaa-'
+            'variant', 'tissue', 'slope', 'gene',
+            'aaa+', 'aaa-', 'aaa_change',
+            'chrom', 'pos', 'ref', 'alt',
+            'strand', 'transcript', 'cds_start', 'cds_end'
         ]
     )
+
+    #report(
+    #    'Expression table for genes (based on data from GTEx)',
+    #    ['\t'.join(map(str, line)) for line in gtex_report_by_genes],
+    #    # note: alleles is not the same as variants
+    #    [
+    #        'gene', 'alleles with expression+', 'alleles with expression-',
+    #        'variants with expression+', 'variants with expression-', '#aaa+', '#aaa-'
+    #    ]
+    #)
 
     print('Done')

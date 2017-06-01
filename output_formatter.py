@@ -16,7 +16,7 @@ def formatter(obj, skip_tab=False, name=None):
         text += '\n'
         for key in sorted(obj.keys()):
             value = obj[key]
-            text += '\t' * level + key + ':' + formatter(value, True) + '\n'
+            text += '\t' * level + repr(key) + ':' + formatter(value, True) + '\n'
     elif type(obj) in (list, tuple, set):
         text += '\n'
         text += '\t' * level + obj.__class__.__name__ + ': '

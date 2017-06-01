@@ -37,26 +37,28 @@ SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_
 
 vcf_mutation_sources = {
     'COSMIC': {
+        'is_alias': False,
         'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
         'given_as_positive_strand_only': True
     },
     'dbSNP': {
-        'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
-        GRCH_SUBVERSION + '/00-All.vcf.gz',
-        'given_as_positive_strand_only': True
-    },
-    'ClinVar': {
+        'is_alias': False,
         'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
         GRCH_SUBVERSION + '/00-All.vcf.gz',
         'given_as_positive_strand_only': True
     },
     'ensembl': {
+        'is_alias': False,
         'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
         'given_as_positive_strand_only': True
     },
+    'ClinVar': {
+        'is_alias': True,
+        'aliased_vcf': 'dbSNP'
+    },
     'ESP': {
-        'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
-        'given_as_positive_strand_only': True
+        'is_alias': True,
+        'aliased_vcf': 'ensembl'
     }
 }
 

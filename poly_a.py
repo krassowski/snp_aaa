@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
-
+from snp_parser import jit
 from __future__ import print_function
 
 
-def show_pos_with_context(seq, start, end):
-    return seq[:start] + '→' + seq[start:end] + '←' + seq[end:]
-
-
+@jit
 def has_poly_a(*args, **kwargs):
     return poly_a(*args, **kwargs)[0]
 
 
+@jit
 def poly_a(seq, start, end, minimal_length=12,
            allowed_mismatches=1, flanking=True):
 
@@ -44,7 +42,7 @@ def poly_a(seq, start, end, minimal_length=12,
                     local_mismatches += 1
             else:
                 pos -= d * (local_mismatches + 1)
-                mismatches -= (local_mismatches)
+                mismatches -= local_mismatches
             coords.append(pos)
 
         if length >= best_match:

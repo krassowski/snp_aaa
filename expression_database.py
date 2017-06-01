@@ -91,54 +91,32 @@ class ExpressionDatabase(BerkleyHashSet):
 
         results = {}
 
-        #print('Variant: %s' % mutation.refsnp_id)
-
         for chrom, pos, ref, alt in mutation.padded_coords(transcript):
 
-            for shift in (-1, 0, +1):
-                for checked_alt in (alt, convert_to_strand(alt, '-')):
-                    for checked_ref in (ref, convert_to_strand(ref, '-')):
+            strand = '+' if transcript.strand == 1 else '-'
 
-                        # print(chrom, pos, checked_alt, checked_ref)
-                        key = '_'.join(map(str, [
-                            chrom,
-                            pos + shift,
-                            checked_ref,
-                            checked_alt
-                        ])) + '_b37'
-                        # print(key)
+            key = '_'.join(map(str, [
+                chrom,
+                pos,
+                convert_to_strand(ref, strand),
+                convert_to_strand(alt, strand)
+            ])) + '_b37'
 
-                        # print('Trying key: %s' % key)
+            # https://www.gtexportal.org/home/snp/rs7841915
+            # if mutation.refsnp_id == 'rs7841915':
+            #   print(key)
 
-                        data = self[key]
-                        if data:
-                            print(data)
+            data = self[key]
 
-                        results[alt] = [
-                            datum.split(',')
-                            for datum in data
-                        ]
+            if data:
+                print(mutation.refsnp_id)
+                print(key)
+                print(data)
 
-        """
-        chrom = 1
-        pos = 693731
-        checked_ref = 'A'
-        checked_alt = 'G'
-        print(chrom, pos, checked_alt, checked_ref)
-        key = '_'.join(map(str, [
-            chrom,
-            pos,
-            checked_ref,
-            checked_alt
-        ])) + '_b37'
-        print(key)
-
-        #print('Trying key: %s' % key)
-
-        data = self[key]
-        if data:
-            print(data)
-        """
+            results[alt] = [
+                datum.split(',')
+                for datum in data
+            ]
 
         return results
 

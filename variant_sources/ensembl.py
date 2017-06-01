@@ -1,39 +1,16 @@
 from __future__ import print_function
 import gzip
 import json
-import os
 import subprocess
 from collections import defaultdict, OrderedDict
 import gc
 from contextlib import contextmanager
-from multiprocessing import Pool
-
-import io
 from tqdm import tqdm
-
-from cache import cacheable, args_aware_cacheable
+from cache import args_aware_cacheable
 from commands import SourceSubparser
-from parse_variants import get_unique_variants, init_worker
-from variant import Variant, BiomartVariant, AffectedTranscript
+from variant import Variant, AffectedTranscript
 from variant_sources import variants_getter
 from variant_sources.biomart import gene_names_from_patacsdb_csv
-
-
-class DummyReadableFileObject(object):
-    def __init__(self, raw):
-        self._raw = raw
-
-    def readable(self):
-        return True
-
-    def writable(self):
-        return False
-
-    def seekable(self):
-        return True
-
-    def __getattr__(self, name):
-        return getattr(self._raw, name)
 
 
 @contextmanager
@@ -49,7 +26,6 @@ def fast_gzip_read(file_name, single_thread=False):
     )
     yield p.stdout
 
-#0:05:20.291187
 
 @args_aware_cacheable
 def count_lines(file_name, single_thread=False):
@@ -67,9 +43,21 @@ def count_lines(file_name, single_thread=False):
 
 ensembl_args = SourceSubparser(
     'ensembl',
-    help='Arguments for biomart arguments fetching'
+    help='Arguments for raw Ensembl variants loading'
 )
 
+ensembl_args.add_command(
+    '--early_selection',
+    choices=['spidex', 'full_aaa'],
+    default='spidex',
+    help=(
+        'Loading all variants takes ages. "early_selection" option specifies analysis for which the variants will '
+        'be used so loader can choose which variants should be rejected early. '
+        'Default: spidex. Choices: spidex, full_aaa.'
+    )
+)
+
+"""
 ensembl_args.add_command(
     '--filters',
     type=json.loads,
@@ -88,27 +76,19 @@ ensembl_args.add_command(
              'will be used. To use all human genes specify "all_human_genes".'
          )
 )
+"""
 
 
 @variants_getter
 def ensembl(args):
-    """Download variants from given --biomart, belonging to
-    coding sequences of genes specified with --genes_list and
-    filtered with --filters.
+    """Load variants from Ensembl raw database files.
+    Only variants belonging to coding sequences will be loaded.
+
     """
-    #raw_variants_by_gene = load_ensembl_variants.load_or_create(
-    #    args.genes_list,
-    #    filters=args.filters
-    #)
-    raw_variants_by_gene = load_ensembl_variants(
-        args.genes_list,
-        filters=args.filters
-    )
-    return raw_variants_by_gene
 
-
-#@cacheable
-def load_ensembl_variants(gene_names, filters={}):
+    # specified with --genes_list and filtered with --filters.
+    # gene_names = args.genes_list
+    # filters = args.filters
 
     types = OrderedDict(
         (
@@ -210,17 +190,27 @@ def load_ensembl_variants(gene_names, filters={}):
             )
         )
 
-    """
-        if len(alleles[0]) != 1:
-            return
-        if len(alleles) > 1 and alleles[1] != 'COSMIC_MUTATION':
-            if len(alleles[1]) != 1:
-                return
-            # should i keep it?
-            if not ('A' in alleles):
-                return
-        return True
-    """
+    @jit
+    def is_poly_aaa_viable(alleles):
+        has_a = False
+        for allele in alleles:
+            if 'A' in allele:
+                has_a = True
+                break
+
+        return (
+            has_a
+            # or alleles[1] == 'COSMIC_MUTATION'    # this will be included in has_a ;)
+        )
+
+    if args.early_selection == 'spidex':
+        is_viable = is_spidex_poly_aaa_viable
+    else:
+        is_viable = is_poly_aaa_viable
+
+    # TODO: LRG count them, ignore mismatches or ignore them at all
+    # TODO vcf parsers: ise ensembl needed?
+
     filename = loc + 'transcript_variation.txt.gz'
     with fast_gzip_read(filename) as f:
         for line in tqdm(f, total=count_lines(filename)):
@@ -229,7 +219,7 @@ def load_ensembl_variants(gene_names, filters={}):
             if good_consequence(data):
                 alleles = data[3].split('/')
 
-                if not is_spidex_poly_aaa_viable(alleles):
+                if not is_viable(alleles):
                     continue
 
                 ref = alleles[0]

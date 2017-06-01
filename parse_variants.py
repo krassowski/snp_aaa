@@ -245,6 +245,7 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
     else:
         print('Cannot determine surrounding sequences for %s variant' % variant.refsnp_id)
         variant.correct = False
+        return
 
     if not (variant.ref and variant.alts and variant.gene and variant.chrom_start):
 
