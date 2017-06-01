@@ -5,8 +5,10 @@ import re
 import signal
 import traceback
 from collections import defaultdict
+from copy import copy, deepcopy
 from multiprocessing import Pool
 
+from pyfaidx import Fasta
 from tqdm import tqdm
 from poly_a import poly_a
 from snp_parser import vcf_mutation_sources, jit
@@ -34,31 +36,66 @@ def get_dna_sequence(variant, offset, database):
         print('Unknown chromosome: %s' % chromosome)
 
 
-def get_transcripts_sequences(variant, offset, database):
+transcripts = Fasta('ensembl/v88/Homo_sapiens.GRCh37.cds.all.fa', key_function=lambda x: x.split('.')[0])
+
+
+def get_transcripts_sequences(variant, offset):
     reference_sequences = {}
 
     any_ref = False
 
     for transcript in variant.affected_transcripts:
-        ref = get_reference_by_transcript(transcript, offset, database)
+
+        #ref = get_reference_by_transcript(transcript, offset, database)
+
+        whole_seq = str(transcripts[transcript.ensembl_id])
+
+        raw_start = getattr(transcript, REFERENCE_SEQUENCE_TYPE + '_start')
+        raw_end = getattr(transcript, REFERENCE_SEQUENCE_TYPE + '_end')
+
+        if not (raw_start and raw_end):
+            # print('No sequence coordinates for %s transcript' % transcript.ensembl_id)
+            continue
+
+        if raw_end - raw_start > 2 * offset:
+            print('Skipping transcript %s of variant %s: too wide variation' % (transcript.ensembl_id, variant.refsnp_id))
+            continue
+
+        seq = None
+        if whole_seq:
+            start = raw_start - 1
+            end = raw_end
+
+            cut_from = start - offset
+            cut_to = end + offset
+
+            seq = whole_seq[max(cut_from, 0):max(cut_to, 0)]
+
+            # if we are on the edge of sequence
+            if cut_from < 0:
+                seq = '-' * (-cut_from) + seq
+            if cut_to > len(whole_seq):
+                seq += '-' * (cut_to - len(whole_seq))
+
+            assert len(seq) == offset * 2 + raw_end - raw_start + 1
+
+        ref = seq
+        #assert ref == seq
 
         if ref:
             reference_sequences[transcript] = ref
             any_ref = True
         elif transcript.ensembl_id.startswith('LRG_'):
-            # TODO: check how many of them there are
             # Yeah, I know that LRG transcripts do not have sequences in ensembl databases
-            pass
-        elif ref is False:
             pass
         else:
             print('No sequence for %s transcript' % transcript)
 
     if not any_ref:
         print(
-            'Variant %s has no sequence coordinates for any of its transcripts (using %s)'
+            'Variant %s has no sequence for any of its transcripts (using %s)'
             %
-            (variant.refsnp_id, database.sequence_type)
+            (variant.refsnp_id, REFERENCE_SEQUENCE_TYPE)
         )
 
     return reference_sequences
@@ -146,6 +183,8 @@ def decode_hgvs_code(code):
 
 def determine_mutation(variant, vcf_parser, offset):
     if variant.refsnp_source == 'PhenCode':
+        print('PhenCode variant:')
+        print(variant)
         alt_source = 'PhenCode'
         gene, pos, ref, alt = decode_hgvs_code(variant.refsnp_id)
         alts = [alt]
@@ -185,16 +224,48 @@ def determine_mutation(variant, vcf_parser, offset):
 
     # check ref sequence
     if variant.sequences:
+
+        pos_correct = 0
+
         for transcript, sequence in variant.sequences.iteritems():
             seq_ref = sequence[offset:-offset]
 
             if ref != seq_ref:
-                print(
-                    '%s says ref is %s, but sequence analysis pointed to %s for %s, %s'
-                    % (alt_source, ref, seq_ref, variant.refsnp_id, transcript)
-                )
-                if ref == '':
-                    print('Probably it\'s just insertion ;)')
+
+                # Cosmic represents insertions AND bigger deletions as a range:
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=111380 - deletion (start = end)
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=1223920 - substitution (start = end)
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=4699526 - insertion (start != end)
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=4612790 - big deletion (start != end)
+
+                if variant.refsnp_source == 'COSMIC' and transcript.cds_end != transcript.cds_start:
+                    # as all deletions pass ref == seq_ref test, and insertions fall there,
+                    # it is needed to assure that those are corrected here. Firstly, make sure
+                    # that it is an insertion:
+                    assert all(len(alt) > len(ref) for alt in alts)
+
+                    del variant.sequences[transcript]
+
+                    # sequence was too big by 'diff'
+                    diff = transcript.cds_end - transcript.cds_start + 1
+                    if not pos_correct:
+                        pos_correct = diff - 1
+                    else:
+                        assert pos_correct == diff - 1
+
+                    sequence = sequence[:-diff]
+                    transcript.cds_end = transcript.cds_start
+                    assert sequence[offset:-offset] == ref
+
+                    variant.sequences[transcript] = sequence
+
+                else:
+
+                    print(
+                        '%s says ref is %s, but sequence analysis pointed to %s for %s, %s'
+                        % (alt_source, ref, seq_ref, variant.refsnp_id, transcript.ensembl_id)
+                    )
+        pos -= pos_correct
 
     return {
         'gene': gene,
@@ -204,14 +275,18 @@ def determine_mutation(variant, vcf_parser, offset):
     }
 
 
-def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly_a=False):
+def analyze_variant(variant, vcf_parser, offset=OFFSET, keep_only_poly_a=False):
     variant.correct = True  # at least now
 
-    if database.sequence_type == 'dna':
-        chosen_surrounding_sequence = get_dna_sequence(variant, offset, database)
-        sequences = {'dna': chosen_surrounding_sequence}
-    else:
-        sequences = get_transcripts_sequences(variant, offset, database)
+    #if database.sequence_type == 'dna':
+    #    if variant.chrom_end - variant.chrom_start > 2 * offset:
+    #        print('Skipping variant %s: too wide variation' % variant.refsnp_id)
+    #        variant.correct = False
+    #        return
+    #    chosen_surrounding_sequence = get_dna_sequence(variant, offset, database)
+    #    sequences = {'dna': chosen_surrounding_sequence}
+    #else:
+    sequences = get_transcripts_sequences(variant, offset)
 
     if keep_only_poly_a:
         retained_sequences = {}
@@ -229,7 +304,7 @@ def analyze_variant(variant, vcf_parser, database, offset=OFFSET, keep_only_poly
             )
 
             if accepted or will_have:
-                print('Variant with poly A: %s, %s, %s' % (variant.refsnp_id, transcript.ensembl_id, transcript.strand))
+                print('Variant with poly A: %s, %s' % (variant.refsnp_id, transcript.ensembl_id))
                 print(show_pos_with_context(sequence, offset, -offset))
                 retained_sequences[transcript] = sequence
 
@@ -284,10 +359,6 @@ def analyze_poly_a(variant, offset=OFFSET):
 
 def get_poly_a(ref_seq, alts, offset):
 
-    # print(variant.refsnp_id)
-    # print('Referen: ' + show_pos_with_context(ref_seq, offset, -offset))
-    # print('Mutated: ' + show_pos_with_context(mutated_seq, offset, -offset))
-
     has_aaa, before_len = poly_a(
         ref_seq,
         offset,
@@ -332,7 +403,6 @@ def parse_gene_variants(item):
     if len(variants_unique_ids) != len(variants):
         raise Exception('Less unique ids than variants!')
 
-    #print('Analysing:', len(variants), 'from', gene)
     print('Analysing:', len(variants), 'variants from some group')
 
     vcf_parser = VariantCallFormatParser(
@@ -340,12 +410,12 @@ def parse_gene_variants(item):
         default_source='ensembl'
     )
 
-    database = create_database()
+    #database = create_database()
 
     def analyze_variant_here(variant):
 
         try:
-            analyze_variant(variant, vcf_parser, database, keep_only_poly_a=KEEP_ONLY_POLY_A)
+            analyze_variant(variant, vcf_parser, keep_only_poly_a=KEEP_ONLY_POLY_A)
         except Exception:
             traceback.print_exc()
             variant.correct = False
@@ -356,7 +426,6 @@ def parse_gene_variants(item):
 
     correct_variants = filter(lambda variant: variant.correct, variants)
 
-    #print('Analysed', gene)
     print('Analysed:', len(variants), 'variants from some group')
 
     gc.collect()

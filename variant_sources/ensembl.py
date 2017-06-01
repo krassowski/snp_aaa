@@ -1,6 +1,4 @@
 from __future__ import print_function
-import gzip
-import json
 import subprocess
 from collections import defaultdict, OrderedDict
 import gc
@@ -28,8 +26,12 @@ def fast_gzip_read(file_name, single_thread=False):
 
 
 @args_aware_cacheable
-def count_lines(file_name, single_thread=False):
-    command = 'zcat %s | wc -l' if single_thread else 'unpigz -p 8 -c %s | wc -l'
+def count_lines(file_name, single_thread=False, grep=None):
+
+    command = 'zcat %s' if single_thread else 'unpigz -p 8 -c %s'
+    if grep:
+        command += '| grep %s' % grep
+    command += ' | wc -l'
 
     out = subprocess.Popen(
         command % file_name,
@@ -48,23 +50,82 @@ ensembl_args = SourceSubparser(
 
 ensembl_args.add_command(
     '--early_selection',
-    choices=['spidex', 'full_aaa'],
-    default='spidex',
+    choices=['spidex_poly_aaa', 'all_potential_poly_aaa'],
+    default='spidex_poly_aaa',
     help=(
         'Loading all variants takes ages. "early_selection" option specifies analysis for which the variants will '
         'be used so loader can choose which variants should be rejected early. '
-        'Default: spidex. Choices: spidex, full_aaa.'
+        'Default: spidex. Choices: spidex, all_potential_poly_aaa.'
     )
 )
 
-"""
 ensembl_args.add_command(
-    '--filters',
-    type=json.loads,
-    default={},
-    help='Additional variants filters to be used when querying biomart'
+    '--location',
+    default='ensembl/v88/GRCh37/variation_database/head/'
 )
 
+
+def set_maker(string):
+    return set(string.split(','))
+
+
+ensembl_args.add_command(
+    '--consequences',
+    default={
+        'coding_sequence_variant',
+        'synonymous_variant',
+        'stop_retained_variant',
+        'protein_altering_variant',
+        'inframe_variant',
+        'incomplete_terminal_codon_variant',
+        'missense_variant',
+        'non_conservative_missense_variant',
+        'conservative_missense_variant'
+        'stop_gained',
+        'initiator_codon_variant',
+        'inframe_indel',
+        'inframe_insertion',
+        'conservative_inframe_insertion',
+        'disruptive_inframe_insertion',
+        'inframe_deletion',
+        'disruptive_inframe_deletion',
+        'conservative_inframe_deletion',
+        'frameshift_variant',
+        'plus_1_frameshift_variant',
+        'minus_1_frameshift_variant',
+        'frameshift_elongation',
+        'frame_restoring_variant',
+        'plus_2_frameshift_variant',
+        'frameshift_truncation',
+        'minus_2_frameshift_variant',
+        'terminator_codon_variant',
+        'incomplete_terminal_codon_variant',
+        'stop_lost',
+        'stop_retained_variant',
+    },
+    type=set_maker
+)
+
+
+@ensembl_args.command('--transcript_stats', action='store_true')
+def transcript_stats(value, args):
+    if not value:
+        return
+
+    print('Generating transcripts statistics')
+
+    loc = args.location
+    filename = loc + 'transcript_variation.txt.gz'
+    all = float(count_lines(filename))
+    enst = count_lines(filename, grep='ENST')
+    lrg = count_lines(filename, grep='LRG_')
+    print('All transcripts: %s ' % all)
+    print('ENST transcripts: %s (%s percent)' % (enst, enst/all))
+    print('LRG transcripts: %s (%s percent)' % (lrg, lrg/all))
+    print('Other transcripts: %s (%s percent)' % (all-enst-lrg, (all-lrg-enst)/all))
+
+
+"""
 ensembl_args.add_command(
     '--genes_list',
     nargs='+',
@@ -85,6 +146,10 @@ def ensembl(args):
     Only variants belonging to coding sequences will be loaded.
 
     """
+    print(args)
+
+    loc = args.location
+    accepted_consequences = args.consequences
 
     # specified with --genes_list and filtered with --filters.
     # gene_names = args.genes_list
@@ -117,8 +182,6 @@ def ensembl(args):
             ('display', bool)
         )
     )
-    loc = 'ensembl/v88/GRCh37/variation_database/'
-
     by_id = {}
     keys = types.keys()
     somatic_pos = keys.index('somatic')
@@ -138,40 +201,6 @@ def ensembl(args):
         for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
             transcript_strand[data[14]] = int(data[6])
-
-    accepted_consequences = {
-        'coding_sequence_variant',
-        'synonymous_variant',
-        'stop_retained_variant',
-        'protein_altering_variant',
-        'inframe_variant',
-        'incomplete_terminal_codon_variant',
-        'missense_variant',
-        'non_conservative_missense_variant',
-        'conservative_missense_variant'
-        'stop_gained',
-        'initiator_codon_variant',
-        'inframe_indel',
-        'stop_lost',
-        'inframe_insertion',
-        'conservative_inframe_insertion',
-        'disruptive_inframe_insertion',
-        'inframe_deletion',
-        'disruptive_inframe_deletion',
-        'conservative_inframe_deletion',
-        'frameshift_variant',
-        'plus_1_frameshift_variant',
-        'minus_1_frameshift_variant',
-        'frameshift_elongation',
-        'frame_restoring_variant',
-        'plus_2_frameshift_variant',
-        'frameshift_truncation',
-        'minus_2_frameshift_variant',
-        'terminator_codon_variant',
-        'incomplete_terminal_codon_variant',
-        'stop_lost',
-        'stop_retained_variant',
-    }
 
     @jit
     def good_consequence(data):
@@ -208,14 +237,14 @@ def ensembl(args):
     else:
         is_viable = is_poly_aaa_viable
 
-    # TODO: LRG count them, ignore mismatches or ignore them at all
-    # TODO vcf parsers: ise ensembl needed?
+    # TODO vcf parsers: is ensembl needed?
 
     filename = loc + 'transcript_variation.txt.gz'
     with fast_gzip_read(filename) as f:
         for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
-            #if data[somatic_pos] == '1' and good_consequence(data):
+
+            # to restrict to somatic mutations, use: and data[somatic_pos] == '1'
             if good_consequence(data):
                 alleles = data[3].split('/')
 
@@ -234,33 +263,49 @@ def ensembl(args):
                     ensembl_id=data[2]
                 )
 
-                if variant_id in by_id:
-                    v = by_id[variant_id]
+                v = by_id.get(variant_id, None)
+
+                if v:
 
                     if v.allele_1 != ref:
                         print(
-                            'Reference does not match: %s vs %s'
+                            'Reference does not match: %s vs %s '
                             'for variant %s, with transcripts: %s %s'
                             %
                             (
                                 v.allele_1,
                                 ref,
                                 variant_id,
-                                data[2],
-                                list(v.affected_transcripts)[0].ensembl_id
+                                transcript.ensembl_id,
+                                ', '.join(t.ensembl_id for t in v.affected_transcripts)
                             )
                         )
-                        continue
+                        if transcript.ensembl_id.startswith('LRG_'):
+                            print('Skipping volatile LRG "transcript" %s' % transcript.ensembl_id)
+                        else:
+                            # maybe allele_1 was set wrongly because we started with volatile LRG "transcript"
+                            # and did not detected that yet?
+                            lrg_list = [t for t in v.affected_transcripts if t.ensembl_id.startswith('LRG_')]
+
+                            # it would be only possible if all variants to this time were "LRG"
+                            if len(lrg_list) == len(v.affected_transcripts):
+                                # if so, lets purge those LRG "transcripts", these are useless
+                                print('Removing previously accepted faulty LRG "transcripts"')
+                                v.affected_transcripts = set()
+                            else:
+                                # well we have a serious problem
+                                print(
+                                    'Warning! Cannot resolve mentioned reference mismatch! '
+                                    'Using the previously accepted transcripts only!'
+                                )
+                                continue
 
                     v.affected_transcripts.add(transcript)
-                    # if v.ensembl_transcript_stable_id == data[2]:
-                    #    v
                 else:
-                    v = Variant(
+                    by_id[variant_id] = Variant(
                         allele_1=ref,
                         affected_transcripts={transcript}
                     )
-                    by_id[variant_id] = v
     gc.collect()
 
     print('Accepted:', len(by_id))
@@ -329,17 +374,14 @@ def ensembl(args):
 
     for v in tqdm(by_id.itervalues(), total=len(by_id)):
         if not hasattr(v, 'refsnp_id'):
+            #print(v)
             no_name += 1
             continue
         if v.refsnp_id in by_name:
             by_name[v.refsnp_id].affected_transcripts.update(v.affected_transcripts)
             no_u += 1
-            #print('Compare:')
-            #print(by_name[v.refsnp_id])
-            #print(v)
         else:
             by_name[v.refsnp_id] = v
-            # transcript = v.extract_transcript()
     print('Noname: %s' % no_name)
     print('Nouniqe names: %s' % no_u)
     print('Remained grouped by name: %s' % len(by_name))

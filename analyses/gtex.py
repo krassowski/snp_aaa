@@ -119,7 +119,6 @@ def gtex_over_api(variants_by_gene):
     )
 
 
-
 @reporter
 def poly_aaa_vs_expression(variants_by_gene):
 

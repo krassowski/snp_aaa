@@ -59,8 +59,8 @@ class AffectedTranscript(SlottedObject):
     __slots__ = (
         'ensembl_id',
         'strand',
-        'cdna_start',
-        'cdna_end',
+        #'cdna_start',
+        #'cdna_end',
         'cds_start',
         'cds_end',
         'poly_aaa',
@@ -133,7 +133,7 @@ class Variant(SlottedObject):
         'allele_1',  # Ancestral allele - the most frequent allele
         'minor_allele',     # the second most frequent allele
         'chrom_strand',
-        'ensembl_gene_stable_id',
+        # 'ensembl_gene_stable_id',
         # 'consequence_type_tv',
         # 'consequence_allele_string'
     )

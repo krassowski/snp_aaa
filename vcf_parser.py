@@ -44,7 +44,9 @@ class VariantCallFormatParser(object):
                 self.readers[source] = vcf.Reader(filename=data['path'])
         for source, data in vcf_sources.iteritems():
             if data['is_alias']:
-                self.readers[source] = self.readers[data['aliased_vcf']]
+                target = data['aliased_vcf']
+                vcf_sources[source] = vcf_sources[target]
+                self.readers[source] = self.readers[target]
 
     def get_by_transcript(self, transcript, pos, source):
 

@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from biomart_data import BiomartDataset
 from cache import cacheable
-from fasta_sequence_db import SequenceDB, FastSequenceDB
+from fasta_sequence_db import TranscriptSequenceDB, FastSequenceDB
 from commands import execute_commands, execute_subparser_commands
 from commands import append_commands
 from commands import append_subparsers
@@ -59,7 +59,11 @@ vcf_mutation_sources = {
     'ESP': {
         'is_alias': True,
         'aliased_vcf': 'ensembl'
-    }
+    },
+    'HGMD-PUBLIC': {
+        'is_alias': True,
+        'aliased_vcf': 'ensembl'
+    },
 }
 
 
@@ -243,10 +247,9 @@ def get_all_used_transcript_ids(variants_by_gene):
 
 @cacheable
 def create_cds_db(transcripts_to_load):
-    return SequenceDB(
+    return TranscriptSequenceDB(
         version=ENSEMBL_VERSION,
         assembly=GRCH_VERSION,
-        index_by='transcript',
         sequence_type='cds',
         restrict_to=transcripts_to_load
     )
@@ -254,10 +257,9 @@ def create_cds_db(transcripts_to_load):
 
 @cacheable
 def create_cdna_db(transcripts_to_load):
-    return SequenceDB(
+    return TranscriptSequenceDB(
         version=ENSEMBL_VERSION,
         assembly=GRCH_VERSION,
-        index_by='transcript',
         sequence_type='cdna',
         restrict_to=transcripts_to_load
     )

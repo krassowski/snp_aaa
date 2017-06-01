@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from snp_parser import jit
 from __future__ import print_function
+from snp_parser import jit
 
 
 @jit
