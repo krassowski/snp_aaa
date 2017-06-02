@@ -188,6 +188,7 @@ Transcript CDS sequences were downloaded from Ensembl as fasta files.
 ### Variants
 
 Following variants properties are determined by a source-specific 'variants_getter' script:
+
 * identifiers,
 * location (genomic and in cDNA),
 * reference allele,
@@ -210,6 +211,7 @@ Ensembl, Cosmic and NCBI
 were used.
 
 Some of the VCF files cover more than one source of mutations i.e.:
+
 * NCBI VCF has both dbSNP and ClinVar variants,
 * Ensembl covers ESP and HGMD-PUBLIC
 
@@ -219,8 +221,10 @@ Some of the VCF files cover more than one source of mutations i.e.:
 
 Variants will be filtered at loading to reduce the tremendous quantity;
 An option `--early_selection` defines criteria for filtering:
+
 * `all_potential_poly_aaa` will load all variants which might affect or lay nearby poly(A) sequence
 * `spidex_poly_aaa` will load only such poly(A) related variants which are single 1-1 substitutions, like variants analysed in SPIDEX database.
+
 ```bash
 ./snp_parser.py --variants ensembl ensembl --early_selection all_potential_poly_aaa
 ```
@@ -273,6 +277,24 @@ Pigz provides parallel decompression capabilities:
 ```
 conda install pigz
 ```
+
+### Recommended command to perform analyses
+
+```
+~/anaconda2/bin/python -u -O snp_parser.py --report analysis_name | tee analysis_name.version.log
+```
+
+### Speeding up
+
+Variants parsing is way much faster when some frequently used files are placed in ramdisk:
+
+Ramdisk can be created using:
+```
+sudo mkdir -p /media/ramdisk
+mount -t tmpfs -o size=6144M tmpfs /media/ramdisk/
+```
+
+I recommend placing CDS transcript database, and VCF files there.
 
 ### Databases download
 
