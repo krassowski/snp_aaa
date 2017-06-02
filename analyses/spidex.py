@@ -567,7 +567,7 @@ def poly_aaa_vs_spidex(variants_by_gene):
     variants_groups = divide_variants_by_poly_aaa(raw_report)
     plot_aaa_vs_spidex(variants_groups)
     print('ks test')
-    spidex_aaa_ks_test(variants_groups)
+    spidex_aaa_ks_test(variants_groups, already_divided=True)
 
 
 @reporter
@@ -620,7 +620,14 @@ def _get_all_zscores():
     return zscores
 
 
-def spidex_aaa_ks_test(variants_groups):
+@reporter
+def spidex_aaa_ks_test(variants_groups, already_divided=False):
+
+    if not already_divided:
+        aaa_variants_list = all_poly_a_variants(variants_groups)
+        raw_report = spidex_from_list(aaa_variants_list)
+        variants_groups = divide_variants_by_poly_aaa(raw_report)
+
     full_spidex_zscore_dist = get_all_zscore.load_or_create()
 
     groups_zscores = {
@@ -647,6 +654,8 @@ def spidex_aaa_ks_test(variants_groups):
     group = None
     name = None
 
+    ks_results = {}
+
     for new_aaa_length in sorted(groups_new_aaa_lengths):
         print(
             'All mutations causing poly_aaa to be <= %s vs all mutations causing poly_aaa to be > %s:'
@@ -666,6 +675,25 @@ def spidex_aaa_ks_test(variants_groups):
         ]
         ks_result = ks_2samp(z_scores_1, z_scores_2)
         print(ks_result)
+        ks_results[new_aaa_length] = - np.log(ks_result.pvalue)
+
+    lengths = ks_results.keys()
+    plt.hist(
+        lengths,
+        weights=ks_results.values(),
+        bins=range(min(lengths), max(lengths)),
+        rwidth=0.9
+    )
+    plt.xticks(lengths)
+
+    plt.xlabel('Length of poly(A) track: $x$')
+    plt.ylabel(r'$-\log($P-Value$)$')
+    plt.title(
+        'Ks-test for groups: '
+        'mutations effecting in poly(A) length $\leq$ $x$ vs mutations effecting in poly(A) length > $x$'
+    )
+    plt.grid(True)
+    plt.show()
 
 
 @reporter

@@ -14,6 +14,7 @@ from snp_parser import vcf_mutation_sources, jit
 from variant import PolyAAAData
 from vcf_parser import ParsingError, VariantCallFormatParser
 from snp_parser import create_dna_db
+from snp_parser import TRANSCRIPT_DB_PATH
 
 
 REFERENCE_SEQUENCE_TYPE = 'cds'
@@ -35,8 +36,7 @@ def get_dna_sequence(variant, offset, database):
         print('Unknown chromosome: %s' % chromosome)
 
 
-transcripts = Fasta('/media/ramdisk/Homo_sapiens.GRCh37.cds.all.fa', key_function=lambda x: x.split('.')[0])
-#transcripts = Fasta('ensembl/v88/Homo_sapiens.GRCh37.cds.all.fa', key_function=lambda x: x.split('.')[0])
+transcripts = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
 
 
 def get_transcripts_sequences(variant, offset):
