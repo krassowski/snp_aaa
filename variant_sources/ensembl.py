@@ -61,7 +61,7 @@ ensembl_args.add_command(
 
 ensembl_args.add_command(
     '--location',
-    default='ensembl/v88/GRCh37/variation_database/head/'
+    default='ensembl/v88/GRCh37/variation_database/'
 )
 
 
@@ -232,7 +232,7 @@ def ensembl(args):
             # or alleles[1] == 'COSMIC_MUTATION'    # this will be included in has_a ;)
         )
 
-    if args.early_selection == 'spidex':
+    if args.early_selection == 'spidex_poly_aaa':
         is_viable = is_spidex_poly_aaa_viable
     else:
         is_viable = is_poly_aaa_viable
@@ -243,6 +243,10 @@ def ensembl(args):
     with fast_gzip_read(filename) as f:
         for line in tqdm(f, total=count_lines(filename)):
             data = line.split('\t')
+
+            # ignore 'LRG' transcripts at all
+            if data[2].startswith('LRG_'):
+                continue
 
             # to restrict to somatic mutations, use: and data[somatic_pos] == '1'
             if good_consequence(data):
@@ -398,7 +402,7 @@ def ensembl(args):
     ids = []
     for v_id, v in by_name.iteritems():
         c += 1
-        if c % 5000 == 0:
+        if c % 15000 == 0:
             out[','.join(ids)] = group
             group = []
             ids = []

@@ -266,7 +266,7 @@ def spidex_from_list(variants_list):
                     variant.chrom_end,
                     variant.ref,
                     alt,
-                    variant.ensembl_gene_stable_id,
+                    None,#variant.ensembl_gene_stable_id,
                     transcript.strand,
                     transcript.ensembl_id,
                     aaa_data.increased,

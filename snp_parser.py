@@ -20,7 +20,7 @@ from tqdm import tqdm
 
 from biomart_data import BiomartDataset
 from cache import cacheable
-from fasta_sequence_db import TranscriptSequenceDB, FastSequenceDB
+from fasta_sequence_db import FastSequenceDB
 from commands import execute_commands, execute_subparser_commands
 from commands import append_commands
 from commands import append_subparsers
@@ -38,7 +38,8 @@ SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_
 vcf_mutation_sources = {
     'COSMIC': {
         'is_alias': False,
-        'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
+        #'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
+        'path': '/media/ramdisk/CosmicCodingMuts.vcf.gz.bgz',
         'given_as_positive_strand_only': True
     },
     'dbSNP': {
@@ -49,7 +50,8 @@ vcf_mutation_sources = {
     },
     'ensembl': {
         'is_alias': False,
-        'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
+        #'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
+        'path': '/media/ramdisk/Homo_sapiens.vcf.gz',
         'given_as_positive_strand_only': True
     },
     'ClinVar': {
@@ -145,18 +147,6 @@ def create_arg_parser():
         help='Analyses to be performed; one or more from: ' + ', '.join(REPORTERS.iterkeys()),
         metavar=''
     )
-    # parser.add_argument(
-    #     '--variants_list',
-    #     nargs='+',
-    #     type=str,
-    #     default=None,
-    #     help=(
-    #         'list of variants to be used in analysis. By default, '
-    #         'analysis will be performed using variants fetched with biomart '
-    #         'from coding areas of human genes from PATACSDB.'
-    #     )
-    # )
-
     parser.add_argument(
         '--verbose',
         action='store_true',
@@ -246,26 +236,6 @@ def get_all_used_transcript_ids(variants_by_gene):
 
 
 @cacheable
-def create_cds_db(transcripts_to_load):
-    return TranscriptSequenceDB(
-        version=ENSEMBL_VERSION,
-        assembly=GRCH_VERSION,
-        sequence_type='cds',
-        restrict_to=transcripts_to_load
-    )
-
-
-@cacheable
-def create_cdna_db(transcripts_to_load):
-    return TranscriptSequenceDB(
-        version=ENSEMBL_VERSION,
-        assembly=GRCH_VERSION,
-        sequence_type='cdna',
-        restrict_to=transcripts_to_load
-    )
-
-
-@cacheable
 def create_dna_db():
     chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
     dna_db = {}
@@ -315,11 +285,6 @@ def main(args):
         from variant_sources import VARIANTS_GETTERS
         raw_variants_by_gene = VARIANTS_GETTERS[method](args)
 
-        # transcripts have changed, some databases need reload
-        transcripts_to_load = get_all_used_transcript_ids.save(raw_variants_by_gene)
-        create_cds_db.save(transcripts_to_load)
-        create_cdna_db.save(transcripts_to_load)
-
         print('Raw variants data downloaded, databases reloaded.')
 
         if do_not_dump:
@@ -335,7 +300,6 @@ def main(args):
             datetime.timedelta(seconds=end-start)
         )
         print('Variants data parsed and ready to use.')
-
 
     # 3. Perform chosen analyses and generate reports
     if args.report:

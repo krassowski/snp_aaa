@@ -3,7 +3,6 @@
 
 from __future__ import print_function
 import gzip
-from pyfaidx import Fasta
 
 
 def complement(seq):
@@ -39,78 +38,6 @@ class BasicSequenceDB(object):
             path = self.directory + self.version + '/' + '.'.join(data) + '.fa.gz'
 
         self.path = path
-
-
-class TranscriptSequenceDB(BasicSequenceDB):
-    """Used for cds and cdna"""
-
-    def __init__(self, version, assembly, sequence_type='cds', id_type='all', path=None, restrict_to=None):
-
-        super(TranscriptSequenceDB, self).__init__(sequence_type, id_type, version, assembly, path)
-
-        self.restrict_to = restrict_to
-        print('[loading database: ' + self.path + ']')
-        self.db = {}
-        self.load(self.path)
-        print('[database loaded]')
-
-    def load(self, path):
-        self.db = {}
-        from variant_sources.ensembl import fast_gzip_read
-        with fast_gzip_read(path) as f:
-
-            transcript_id = None
-            skip = False
-
-            for line in f:
-                if line.startswith('>'):
-                    # skip '>' character, get first space separated string
-                    transcript_id_versioned = line[1:].split(' ')[0]
-                    # get rid of version number
-                    transcript_id = transcript_id_versioned.split('.')[0]
-                    if self.restrict_to and transcript_id in self.restrict_to:
-                        skip = False
-                    else:
-                        skip = self.restrict_to
-                    if not skip:
-                        assert transcript_id not in self.db
-                        self.db[transcript_id] = ''
-                elif transcript_id and not skip:
-                        self.db[transcript_id] += line.rstrip()
-                elif not skip:
-                    print('Warning: record empty at line: \n' + line)
-
-    def fetch(self, name, strand, raw_start, raw_end, offset):
-        if not raw_start or not raw_end:
-            return
-
-        seq = None
-
-        whole_seq = self.db.get(name, None)
-
-        if whole_seq:
-            start = raw_start - 1
-            end = raw_end
-
-            cut_from = start - offset
-            cut_to = end + offset
-
-            seq = whole_seq[max(cut_from, 0):max(cut_to, 0)]
-
-            # if we are on the edge of sequence
-            if cut_from < 0:
-                seq = '-' * (-cut_from) + seq
-            if cut_to > len(whole_seq):
-                seq += '-' * (cut_to - len(whole_seq))
-
-            assert len(seq) == offset * 2 + raw_end - raw_start + 1
-
-            #s = self.transcripts[name][start:end]
-            #print('compare:')
-            #print(seq)
-            #print(s)
-
-        return seq
 
 
 class FastSequenceDB(BasicSequenceDB):

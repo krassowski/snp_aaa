@@ -5,7 +5,6 @@ import re
 import signal
 import traceback
 from collections import defaultdict
-from copy import copy, deepcopy
 from multiprocessing import Pool
 
 from pyfaidx import Fasta
@@ -14,7 +13,7 @@ from poly_a import poly_a
 from snp_parser import vcf_mutation_sources, jit
 from variant import PolyAAAData
 from vcf_parser import ParsingError, VariantCallFormatParser
-from snp_parser import create_dna_db, create_cdna_db, create_cds_db
+from snp_parser import create_dna_db
 
 
 REFERENCE_SEQUENCE_TYPE = 'cds'
@@ -36,7 +35,8 @@ def get_dna_sequence(variant, offset, database):
         print('Unknown chromosome: %s' % chromosome)
 
 
-transcripts = Fasta('ensembl/v88/Homo_sapiens.GRCh37.cds.all.fa', key_function=lambda x: x.split('.')[0])
+transcripts = Fasta('/media/ramdisk/Homo_sapiens.GRCh37.cds.all.fa', key_function=lambda x: x.split('.')[0])
+#transcripts = Fasta('ensembl/v88/Homo_sapiens.GRCh37.cds.all.fa', key_function=lambda x: x.split('.')[0])
 
 
 def get_transcripts_sequences(variant, offset):
@@ -48,8 +48,6 @@ def get_transcripts_sequences(variant, offset):
 
         #ref = get_reference_by_transcript(transcript, offset, database)
 
-        whole_seq = str(transcripts[transcript.ensembl_id])
-
         raw_start = getattr(transcript, REFERENCE_SEQUENCE_TYPE + '_start')
         raw_end = getattr(transcript, REFERENCE_SEQUENCE_TYPE + '_end')
 
@@ -60,6 +58,11 @@ def get_transcripts_sequences(variant, offset):
         if raw_end - raw_start > 2 * offset:
             print('Skipping transcript %s of variant %s: too wide variation' % (transcript.ensembl_id, variant.refsnp_id))
             continue
+
+        if transcript.ensembl_id not in transcripts:
+            continue
+
+        whole_seq = str(transcripts[transcript.ensembl_id])
 
         seq = None
         if whole_seq:
@@ -383,16 +386,6 @@ def get_poly_a(ref_seq, alts, offset):
         poly_aaa[alt].after = after_len
 
     return poly_aaa
-
-
-def create_database():
-    cache_db_loaders = {
-        'cds': create_cds_db,
-        'cdns': create_cdna_db,
-        'dna': create_dna_db
-    }
-
-    return cache_db_loaders[REFERENCE_SEQUENCE_TYPE].load()
 
 
 def parse_gene_variants(item):
