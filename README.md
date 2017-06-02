@@ -144,6 +144,12 @@ Where:
 
 From COSMIC genes cDNA sequences only headers were used in order to map the names of transcripts between Ensembl and COSMIC databases (worth noting, the distribution of data between transcripts from COSMIC were later in the analysis treated as uninformative, due to purported lack of proper curation i.e. there are serious premises multiple transcript-specific entries were nonetheless assigned to canonical transcript when incorporated to the COSMIC database).
 
+Following data were used:
+* [gene expression level 3 data](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/CosmicCompleteGeneExpression.tsv.gz) - from the TCGA portal
+* [all copy number abberations](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/CosmicCompleteCNA.tsv.gz) - used to map gene expression from samples to gene transcripts
+* [all COSMIC genes cDNA sequences](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/All_COSMIC_Genes.fasta.gz) - names mappings
+
+
 ##### ZCRB1:c.411G>A [to be finished]
 
 Aim: As above, but taking into account well tested mutation with known poly(A) track shortening effect.
@@ -163,6 +169,22 @@ To get stats on ensembl variants, use:
 
 ## Data sources in depth
 
+### Poly(A) tracks
+
+The polyadenylate track [poly(A)] is defined (the same as in PATACSDB) as
+12A-1 (sequence of twelve subsequent adenines with one mismatch allowed).
+
+Search for poly(A) is performed locally:
+for each variant a surrounding sequence is fetched (base on its CDS start and CDS end coordinates),
+then in that sequence poly(A) presence is checked. Later original sequence is replaced with mutated one
+and the search is repeated. If either search ends with a hit, the variant is classified as poly(A) related.
+
+The code responsible for poly(A) detection is located in `poly_a` module.
+
+### Sequences
+
+Transcript CDS sequences were downloaded from Ensembl as fasta files.
+
 ### Variants
 
 Following variants properties are determined by a source-specific 'variants_getter' script:
@@ -171,8 +193,25 @@ Following variants properties are determined by a source-specific 'variants_gett
 * reference allele,
 * lists of affected transcripts
 
-Then all variants are parsed to retrieve alternative alleles, find out surrounding sequence and check reference correctness.
+Then all variants are parsed to retrieve alternative alleles (based on proper VCF file),
+find out surrounding sequence (based on Ensembl CDS transcript database) and check reference correctness.
+
 During parsing non-poly(A) related variants are rejected if requested, to speed up computations.
+
+#### Alternative alleles
+
+For some variants Ensembl does not provide alternative alleles correctly;
+for example COSMIC mutations have alelle string like: "A/COSMIC_MUTATION",
+whereas "fully" described mutations have strings like: "A/C".
+
+In order to retrieve lacking alternative alleles and make sure
+that all others are correct VCF files from three organizations:
+Ensembl, Cosmic and NCBI
+were used.
+
+Some of the VCF files cover more than one source of mutations i.e.:
+* NCBI VCF has both dbSNP and ClinVar variants,
+* Ensembl covers ESP and HGMD-PUBLIC
 
 #### Raw Ensembl
 
@@ -195,31 +234,8 @@ Consequences can be adjusted using `--consequences` option:
 #### Ensembl Biomart
 
 * All variants with consequences (so_term): coding_sequence_variant.
-* Only SNPs from genes present in PATACSDB (Homo sapiens dataset),
+* Only SNPs from genes present in [PATACSDB](http://sysbio.ibb.waw.pl/patacsdb) (Homo sapiens dataset),
 so presence of at least one poly(A) track was guaranteed.
-
-
-
-* Variants' names were obtained from Ensembl with use of Biomart API, with restrict to dataset (somatic mutations only),
-* the variant's alleles data were taken from VCF files from three sources: [Ensembl](ftp://ftp.ensembl.org/pub/release-87/variation/vcf/homo_sapiens/), [COSMIC](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/VCF/CosmicCodingMuts.vcf.gz) and [NCBI](ftp://ftp.ncbi.nih.gov/snp/organisms/human_9606_b146_GRCh38p2/VCF/00-All.vcf.gz),
-* gene sequences (also from Ensembl) were downloaded as [chromosome-grouped DNA](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/dna/), [CDS](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cds/) and [cDNA](ftp://ftp.ensembl.org/pub/release-87/fasta/homo_sapiens/cdna/) FASTA files.
-* from COSMIC following data were downloaded:
-    * [gene expression level 3 data](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/CosmicCompleteGeneExpression.tsv.gz) - from the TCGA portal
-    * [all copy number abberations](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/CosmicCompleteCNA.tsv.gz) - used to map gene expression from samples to gene transcripts
-    * [all COSMIC genes cDNA sequences](http://cancer.sanger.ac.uk/cosmic/files?data=/files/grch38/cosmic/v79/All_COSMIC_Genes.fasta.gz) - names mappings
-* From [PATACSDB](http://sysbio.ibb.waw.pl/patacsdb) list of gene transcript identifiers having poly(A) tracks was retrieved (in CSV format)
-
-
-#### General workflow
-
-##### Discovery of Poly(A) related variants
-
-SNP variants are fetched (hsapiens_snp) from Ensembl's biomart from genes such that poly(A) is guaranteed to occur (PATACSDB, human).
-
-The polyadenylate track [poly(A)] was defined (the same as in PATACSDB) as 12A-1 (sequence of twelve subsequent adenines with one mismatch allowed). The code responsible for poly(A) detection is located in `poly_a` module.
-
-##### Filling up gaps (getting more data about variants)
-Variants retrieved from biomart and populated with additional data from VCF files are sorted by genes. Later in surroundings of each variant the search for poly(A) is performed - both in original and mutated sequence.
 
 
 #### Future development ideas
@@ -268,10 +284,6 @@ To adjust downloaded files, you need to manually modify relevant scripts, eg. to
 in the download script.
 
 
-## How to run tests
-
-You can run basic tests of poly_aaa module simply running it from command line (as opposed to importing from another python package).
-
 ## About
 
-The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Pawe? Szcz?sny.
+The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
