@@ -97,8 +97,8 @@ def spidex_get_variant(tb, variant):
 
     pos = [
         'chr' + variant.chr_name,
-        variant.chrom_start - 1,
-        variant.chrom_end
+        variant.chr_start - 1,
+        variant.chr_end
     ]
 
     records = [
@@ -153,7 +153,7 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
     record = relevant_records[0]
 
     if location and record.location == location:
-        repr_data = (variant.refsnp_id, variant.chr_name, variant.chrom_start)
+        repr_data = (variant.snp_id, variant.chr_name, variant.chr_start)
 
         message = (
             'Skipping intronic record for: %s from %s %s' %
@@ -170,8 +170,8 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
     else:
         strand = record.strand
 
-    if variant.chrom_strand != strand:
-        repr_data = (variant.refsnp_id, variant.chrom_strand, strand)
+    if variant.chr_strand != strand:
+        repr_data = (variant.snp_id, variant.chr_strand, strand)
         message = (
             'Skipping record for: %s - '
             'incorrect strand %s in variant vs %s in record' %
@@ -186,7 +186,7 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
             return []
 
     if convert_to_strand(record.ref_allele, record.strand) != variant.ref:
-        message = 'Reference mismatch for %s!' % variant.refsnp_id
+        message = 'Reference mismatch for %s!' % variant.snp_id
         message += 'Variant ref: %s; record ref: %s, record strand: %s, record converted: %s' % (
             variant.ref,
             record.ref_allele,
@@ -262,8 +262,8 @@ def spidex_from_list(variants_list):
 
                 variant_data = [
                     variant.chr_name,
-                    variant.chrom_start,
-                    variant.chrom_end,
+                    variant.chr_start,
+                    variant.chr_end,
                     variant.ref,
                     alt,
                     None,#variant.ensembl_gene_stable_id,
@@ -274,7 +274,7 @@ def spidex_from_list(variants_list):
                     aaa_data.change,
                     aaa_data.before,
                     aaa_data.after,
-                    variant.refsnp_id,
+                    variant.snp_id,
                 ]
 
                 relevant_record = None
@@ -300,8 +300,8 @@ def spidex_from_list(variants_list):
                     to_test_online.append(
                         [
                             variant.chr_name,
-                            variant.chrom_start,
-                            variant.refsnp_id,
+                            variant.chr_start,
+                            variant.snp_id,
                             variant.ref,
                             alt or '-'
                         ]
@@ -311,12 +311,12 @@ def spidex_from_list(variants_list):
                     record = relevant_record
 
                     #print('Record', record)
-                    spidex_raw_report.append([variant.refsnp_id, alt, aaa_data, record])
+                    spidex_raw_report.append([variant.snp_id, alt, aaa_data, record])
                     spidex_raw_unique[
                         (
                             variant.chr_name,
-                            variant.chrom_start,
-                            variant.chrom_end,
+                            variant.chr_start,
+                            variant.chr_end,
                             variant.ref,
                             alt,
                             transcript.strand,
@@ -328,7 +328,7 @@ def spidex_from_list(variants_list):
                             record.dpsi_max_tissue,
                             record.dpsi_zscore
                         )
-                    ] = [variant.refsnp_id, alt, aaa_data, record]
+                    ] = [variant.snp_id, alt, aaa_data, record]
 
                     record_data = variant_data
                     #print('This record is of type ', record, ': >', record)
@@ -350,19 +350,19 @@ def spidex_from_list(variants_list):
         map(row_to_tsv, spidex_report),
         [
             'chr_name',
-            'chrom_start',
-            'chrom_end',
+            'chr_start',
+            'chr_end',
             'ref',
             'alt',
             'ensembl_gene_stable_id',
-            'chrom_strand',
+            'chr_strand',
             'ensembl_transcript_stable_id',
             'aaa_increased',
             'aaa_decreased',
             'aaa_change',
             'aaa_before',
             'aaa_after',
-            'refsnp_id',
+            'snp_id',
             'dpsi_max_tissue',
             'record.dpsi_zscore'
         ]
@@ -370,19 +370,19 @@ def spidex_from_list(variants_list):
     report(
         'spidex_to_test_online',
         map(row_to_tsv, to_test_online),
-        ['chr_name', 'chrom_start', 'refsnp_id', 'ref', 'alt']
+        ['chr_name', 'chr_start', 'snp_id', 'ref', 'alt']
     )
 
     report(
         'spidex_skipped_intronic',
         map(row_to_tsv, skipped_intronic),
-        ['refsnp_id', 'chr_name', 'chrom_start']
+        ['snp_id', 'chr_name', 'chr_start']
     )
 
     report(
         'spidex_skipped_strand_mismatch',
         map(row_to_tsv, skipped_strand_mismatch),
-        ['refsnp_id', 'chrom_strand', 'SPIDEX_strand']
+        ['snp_id', 'chr_strand', 'SPIDEX_strand']
     )
 
     return spidex_raw_unique

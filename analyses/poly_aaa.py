@@ -16,7 +16,7 @@ def summarize_poly_aaa_variants(variants_by_gene):
 
             variant_aaa_report += [
                 '\t'.join(map(str, [
-                    variant.refsnp_id,
+                    variant.snp_id,
                     None,#variant.ensembl_gene_stable_id,
                     aaa_data.increased,
                     aaa_data.decreased,

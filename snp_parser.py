@@ -3,7 +3,6 @@
 
 from __future__ import print_function
 
-import os
 import sys
 import traceback
 
@@ -11,16 +10,10 @@ import time
 
 import datetime
 
-biomart_fork_path = os.path.realpath(os.path.join(os.curdir, 'biomart'))
-sys.path.insert(0, biomart_fork_path)
-
-
-from biomart import BiomartServer
 from tqdm import tqdm
+from pyfaidx import Fasta
 
-from biomart_data import BiomartDataset
 from cache import cacheable
-from fasta_sequence_db import FastSequenceDB
 from commands import execute_commands, execute_subparser_commands
 from commands import append_commands
 from commands import append_subparsers
@@ -33,15 +26,18 @@ ENSEMBL_VERSION = '88'
 COSMIC_VERSION = '81'
 DBSNP_VERSION = '150'
 SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
-TRANSCRIPT_DB_PATH = 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.' + GRCH_VERSION + '.cds.all.fa'
-# '/media/ramdisk/Homo_sapiens.GRCh37.cds.all.fa'
+#TRANSCRIPT_DB_PATH = 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.' + GRCH_VERSION + '.cds.all.fa'
+TRANSCRIPT_DB_PATH = '/media/ramdisk/Homo_sapiens.GRCh37.cds.all.fa'
+
+
+transcripts = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
 
 
 vcf_mutation_sources = {
     'COSMIC': {
         'is_alias': False,
-        'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
-        #'path': '/media/ramdisk/CosmicCodingMuts.vcf.gz.bgz',
+        #'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
+        'path': '/media/ramdisk/CosmicCodingMuts.vcf.gz.bgz',
         'given_as_positive_strand_only': True
     },
     'dbSNP': {
@@ -53,7 +49,7 @@ vcf_mutation_sources = {
     'ensembl': {
         'is_alias': False,
         #'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
-        #'path': '/media/ramdisk/Homo_sapiens.vcf.gz',
+        'path': '/media/ramdisk/Homo_sapiens.vcf.gz',
         'given_as_positive_strand_only': True
     },
     'ClinVar': {
@@ -68,6 +64,10 @@ vcf_mutation_sources = {
         'is_alias': True,
         'aliased_vcf': 'ensembl'
     },
+    'PhenCode': {
+        'is_alias': True,
+        'aliased_vcf': 'ensembl'
+    },
 }
 
 
@@ -79,24 +79,23 @@ except ImportError:
 
 
 def select_poly_a_related_variants(variants):
-    """Return list oof variants occurring in a poly(A) track and variants which will create poly(A) track."""
-    from parse_variants import analyze_poly_a
+    """Return list of variants occurring in a poly(A) track and variants which will create poly(A) track."""
 
     return [
         variant
-        for variant in map(analyze_poly_a, variants)
+        for variant in variants
         if any([
             data.has or data.will_have
-            for affected_transcript in variant.sequences.iterkeys()
+            for affected_transcript in variant.affected_transcripts
             for data in affected_transcript.poly_aaa.itervalues()
         ])
     ]
 
 
-def all_poly_a_variants(variants_by_gene):
-    total = len(variants_by_gene)
+def all_poly_a_variants(variants):
+    total = len(variants)
 
-    for gene, variants in tqdm(variants_by_gene.iteritems(), total=total):
+    for gene, variants in tqdm(variants.iteritems(), total=total):
 
         poly_a_related_variants = select_poly_a_related_variants(variants)
 
@@ -104,11 +103,11 @@ def all_poly_a_variants(variants_by_gene):
             yield variant
 
 
-def perform_analyses(args, variants_by_gene=None):
+def perform_analyses(args, variants=None):
     """The main workflow happens here."""
 
     if not args.no_variants:
-        variants_by_gene = variants_by_gene_parsed.load()
+        variants = parsed_variants.load()
 
     from analyses import REPORTERS
 
@@ -116,7 +115,7 @@ def perform_analyses(args, variants_by_gene=None):
         current_reporter = REPORTERS[reporter_name]
 
         try:
-            current_reporter(variants_by_gene)
+            current_reporter(variants)
 
         except Exception:
             traceback.print_exc()
@@ -126,11 +125,6 @@ def create_arg_parser():
     from commands import ArgumentParserPlus
     from analyses import REPORTERS
     from variant_sources import VARIANTS_GETTERS
-
-    to_show = [
-        'databases', 'datasets', 'filters', 'attributes',
-        'attributes_by_page',
-    ]
 
     parser = ArgumentParserPlus(description=(
         'Retrieve all data about variants from genes belonging to a predefined '
@@ -174,13 +168,6 @@ def create_arg_parser():
             ])
     )
     parser.add_argument(
-        '--show',
-        choices=to_show,
-        metavar='',
-        help='For debugging only. Show chosen biomart-related data.'
-             ' One of following: ' + ', '.join(to_show)
-    )
-    parser.add_argument(
         '--profile',
         action='store_true',
         help='For debugging only.'
@@ -211,64 +198,11 @@ def parse_args(system_arguments):
 
 
 @cacheable
-def variants_by_gene_parsed(raw_variants_by_gene):
-    from parse_variants import parse_variants_by_gene
-
-    return parse_variants_by_gene(raw_variants_by_gene)
-
-
-@cacheable
-def get_all_used_transcript_ids(variants_by_gene):
-    """Return all transcript identifiers that occur in the passed variants.
-
-    variants_by_gene is expected to by a dict of variant lists grouped by genes.
-    """
-    transcripts_ids = set()
-
-    for variants in variants_by_gene.itervalues():
-        transcripts_ids.update(
-            {
-                transcript.ensembl_id
-                for variant in variants
-                for transcript in variant.affected_transcripts
-            }
-        )
-
-    return transcripts_ids
-
-
-@cacheable
-def create_dna_db():
-    chromosomes = map(str, range(1, 23)) + ['X', 'Y', 'MT']
-    dna_db = {}
-
-    for chromosome in chromosomes:
-        dna_db[chromosome] = FastSequenceDB(
-            version=ENSEMBL_VERSION,
-            assembly=GRCH_VERSION,
-            sequence_type='dna',
-            id_type='chromosome.' + chromosome
-        )
-    return dna_db
+def parsed_variants(variants):
+    return variants
 
 
 def main(args):
-
-    if args.variants == 'biomart':
-        snp_dataset = BiomartDataset(args.biomart, name=args.dataset)
-        biomart_server = BiomartServer(args.biomart)
-
-        show_functions = {
-            'databases': biomart_server.show_databases,
-            'datasets': biomart_server.show_datasets,
-            'filters': snp_dataset.show_filters,
-            'attributes': snp_dataset.show_attributes,
-            'attributes_by_page': snp_dataset.show_attributes_by_page,
-        }
-
-        if args.show:
-            func = show_functions[args.show]
-            func()
 
     execute_commands(args)
     execute_subparser_commands(args)
@@ -285,15 +219,15 @@ def main(args):
         method = args.variants
 
         from variant_sources import VARIANTS_GETTERS
-        raw_variants_by_gene = VARIANTS_GETTERS[method](args)
+        variants = VARIANTS_GETTERS[method](args)
 
-        print('Raw variants data downloaded, databases reloaded.')
-
-        if do_not_dump:
-            from parse_variants import parse_variants_by_gene
-            variants = parse_variants_by_gene(raw_variants_by_gene)
-        else:
-            variants_by_gene_parsed.save(raw_variants_by_gene)
+        #print('Raw variants data downloaded, databases reloaded.')
+        #if do_not_dump:
+        #    from parse_variants import parse_variants_by_gene
+        #    variants = parse_variants_by_gene(raw_variants_by_gene)
+        #else:
+        #    variants_by_gene_parsed.save(raw_variants_by_gene)
+        parsed_variants.save(variants)
 
         end = time.time()
         print(
@@ -305,7 +239,7 @@ def main(args):
 
     # 3. Perform chosen analyses and generate reports
     if args.report:
-        perform_analyses(args, variants_by_gene=variants)
+        perform_analyses(args, variants)
     else:
         print('No analyses specified.')
 

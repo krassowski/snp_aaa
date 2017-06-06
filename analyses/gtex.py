@@ -52,7 +52,7 @@ def gtex_over_api(variants_by_gene):
 
         server = 'http://rest.ensembl.org'
         # server = 'http://grch37.rest.ensembl.org/' GRCH 37 has no eqtls implemented
-        ext = '/eqtl/variant_name/homo_sapiens/%s?statistic=p-value;content-type=application/json' % variant.refsnp_id
+        ext = '/eqtl/variant_name/homo_sapiens/%s?statistic=p-value;content-type=application/json' % variant.snp_id
 
         try:
             r = requests.get(
@@ -69,19 +69,19 @@ def gtex_over_api(variants_by_gene):
             decoded = r.json()
 
             if 'error' not in decoded:
-                print('Got data for %s' % variant.refsnp_id)
+                print('Got data for %s' % variant.snp_id)
                 # print(repr(decoded))
                 for datum in decoded:
                     for transcript in variant.affected_transcripts:
                         for alt, aaa_data in transcript.poly_aaa.iteritems():
                             report_chunk = (
-                                variant.refsnp_id,
+                                variant.snp_id,
                                 datum['tissue'], datum['value'], datum['gene'],
                                 aaa_data.increased,
                                 aaa_data.decreased,
                                 aaa_data.change,
                                 variant.chr_name,
-                                variant.chrom_start,
+                                variant.chr_start,
                                 variant.ref,
                                 alt,
                                 transcript.strand,
@@ -160,10 +160,10 @@ def poly_aaa_vs_expression(variants_by_gene):
                 expression_data = expression_data_by_alt.get(alt, None)
 
                 if not expression_data:
-                    #print('No expression for', variant.refsnp_id, 'with alt:', alt)
+                    #print('No expression for', variant.snp_id, 'with alt:', alt)
                     continue
                 else:
-                    print('Expression data for', variant.refsnp_id, 'found:', expression_data)
+                    print('Expression data for', variant.snp_id, 'found:', expression_data)
 
                 expression_up = []
                 expression_down = []
@@ -173,13 +173,13 @@ def poly_aaa_vs_expression(variants_by_gene):
                 for tissue_name, slope, gene in expression_data:
                     gtex_report_with_tissue.append(
                         (
-                            variant.refsnp_id,
+                            variant.snp_id,
                             tissue_name, slope, gene,
                             data.increased,
                             data.decreased,
                             data.change,
                             variant.chr_name,
-                            variant.chrom_start,
+                            variant.chr_start,
                             variant.ref,
                             alt,
                             transcript.strand,
@@ -218,7 +218,7 @@ def poly_aaa_vs_expression(variants_by_gene):
                 transcript.expression[alt] = expression_trend
 
                 report_chunk = (
-                    variant.refsnp_id,
+                    variant.snp_id,
                     expression_up_in_x_cases,
                     expression_down_in_x_cases,
                     expression_trend,
@@ -226,7 +226,7 @@ def poly_aaa_vs_expression(variants_by_gene):
                     data.decreased,
                     data.change,
                     variant.chr_name,
-                    variant.chrom_start,
+                    variant.chr_start,
                     variant.ref,
                     alt,
                     transcript.strand,

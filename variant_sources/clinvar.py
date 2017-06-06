@@ -5,7 +5,7 @@ from tqdm import trange
 
 from commands import SourceSubparser
 from cache import cacheable
-from variant import Variant, BiomartVariant
+from variant import Variant
 from variant_sources import variants_getter
 
 from pandas import read_csv
@@ -68,10 +68,10 @@ def clinvar_variants(args):
 
         v = Variant(
             chr_name=row.chrom,
-            chrom_start=row.pos,
-            chrom_end=row.pos+len(row.alt)-len(row.ref),
+            chr_start=row.pos,
+            chr_end=row.pos+len(row.alt)-len(row.ref),
             ref=row.pos,
-            refsnp_id=row.hgvs_p,
+            snp_id=row.hgvs_p,
             alts=(row.alt,),
             gene=gene
         )

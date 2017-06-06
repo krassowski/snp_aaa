@@ -59,59 +59,14 @@ class AffectedTranscript(SlottedObject):
     __slots__ = (
         'ensembl_id',
         'strand',
-        #'cdna_start',
-        #'cdna_end',
         'cds_start',
         'cds_end',
         'poly_aaa',
+        'sequence',
         'expression'
     )
 
     __volatile_attributes__ = ['poly_aaa']
-
-
-class BiomartVariant(SlottedObject):
-
-    attributes = (
-        'refsnp_id',
-        'refsnp_source',
-        'chr_name',
-        'chrom_start',
-        'chrom_end',
-        # 'allele',  # Variant Alleles
-        'allele_1',  # Ancestral allele - the most frequent allele
-        # 'minor_allele',     # the second most frequent allele
-        'chrom_strand',
-        'cdna_start',
-        'cdna_end',
-        'ensembl_gene_stable_id',
-        'ensembl_transcript_stable_id',
-        'ensembl_transcript_chrom_strand',
-        'cds_start',
-        'cds_end'
-        # 'consequence_type_tv',
-        # 'consequence_allele_string'
-    )
-
-    __slots__ = attributes
-
-    def __init__(self, line_args=None, **kwargs):
-
-        if line_args:
-            args = line_args.split('\t')
-            kwargs = dict(zip(self.attributes, args))
-
-        super(BiomartVariant, self).__init__(**kwargs)
-
-    def extract_transcript(self):
-        return AffectedTranscript(
-            ensembl_id=self.ensembl_transcript_stable_id,
-            strand=self.ensembl_transcript_chrom_strand,
-            cdna_start=self.cdna_start,
-            cdna_end=self.cdna_end,
-            cds_start=self.cds_start,
-            cds_end=self.cds_end
-        )
 
 
 class Variant(SlottedObject):
@@ -123,33 +78,21 @@ class Variant(SlottedObject):
     # sequence offset
     offset = 20
 
-    biomart_attributes = (
-        'refsnp_id',
-        'refsnp_source',
-        'chr_name',
-        'chrom_start',
-        'chrom_end',
-        # 'allele',  # Variant Alleles
-        'allele_1',  # Ancestral allele - the most frequent allele
-        'minor_allele',     # the second most frequent allele
-        'chrom_strand',
-        # 'ensembl_gene_stable_id',
-        # 'consequence_type_tv',
-        # 'consequence_allele_string'
-    )
-
     attributes = (
+        'snp_id',
+        'source',
+        'chr_name',
+        'chr_start',
+        'chr_end',
+        'chr_strand',
         'ref',
         'gene',
-        # 'sequence',
-        'sequences',
-        'alts',
         'correct',
         'affected_transcripts',
-        'refseq_transcript'
+        #'refseq_transcript'
     )
 
-    __slots__ = attributes + biomart_attributes
+    __slots__ = attributes
 
     def __init__(self, **kwargs):
 
@@ -164,13 +107,13 @@ class Variant(SlottedObject):
         # TODO: what to do for multiple alts?
         for alt in self.alts:
             if self.ref == alt:
-                positions = self.chrom_start
+                positions = self.chr_start
                 event = '{ref}>{alt}'.format(ref=self.ref, alt=alt)
             elif self.ref > alt:
-                positions = '{start}_{end}'.format(start=self.chrom_start, end=self.chrom_start + len(self.ref))
+                positions = '{start}_{end}'.format(start=self.chr_start, end=self.chr_start + len(self.ref))
                 event = 'del'
             elif self.ref < alt:
-                positions = '{start}_{end}'.format(start=self.chrom_start, end=self.chrom_start + len(alt))
+                positions = '{start}_{end}'.format(start=self.chr_start, end=self.chr_start + len(alt))
                 event = 'ins{inserted}'.format(inserted=alt)
             else:
                 assert False
@@ -195,21 +138,21 @@ class Variant(SlottedObject):
 
         assert transcript in self.affected_transcripts
 
-        for alt in self.alts:
+        for alt in transcript.poly_aaa.iterkeys():
 
-            pos = int(self.chrom_start)
+            pos = int(self.chr_start)
             ref = self.ref
 
             if len(alt) != len(ref):
                 # right padding
                 if pos == 1:
-                    next_aa = self.sequences[transcript][self.offset + 1]
+                    next_aa = transcript.sequence[self.offset + 1]
                     ref = ref + next_aa
                     alt = alt + next_aa
                 # left padding
                 else:
                     pos -= 1
-                    prev_aa = self.sequences[transcript][self.offset - 1]
+                    prev_aa = transcript.sequence[self.offset - 1]
                     ref = prev_aa + ref
                     alt = prev_aa + alt
 
@@ -217,7 +160,7 @@ class Variant(SlottedObject):
 
     @property
     def length(self):
-        return self.chrom_end - self.chrom_start
+        return self.chr_end - self.chr_start
 
 
 class PolyAAAData(object):

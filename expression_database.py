@@ -103,13 +103,13 @@ class ExpressionDatabase(BerkleyHashSet):
             ])) + '_b37'
 
             # https://www.gtexportal.org/home/snp/rs7841915
-            # if mutation.refsnp_id == 'rs7841915':
+            # if mutation.snp_id == 'rs7841915':
             #   print(key)
 
             data = self[key]
 
             if data:
-                print(mutation.refsnp_id)
+                print(mutation.snp_id)
                 print(key)
                 print(data)
 

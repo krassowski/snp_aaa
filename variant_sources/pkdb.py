@@ -154,9 +154,9 @@ def polycystic_kidney_disease_variants(args, exonic_only=True):
         variant = Variant(
             None, ref=ref, alts=[alt],
             chr_name=gene.chrom,
-            chrom_start=gene.cds_start + pos,
+            chr_start=gene.cds_start + pos,
             ensembl_transcript_stable_id=gene.ensembl_transcript_stable_id,
-            refsnp_id=hgvs_code
+            snp_id=hgvs_code
         )
         # TODO: tried to use
         # http://myvariant.info/ to map variants, get variants data.

@@ -26,10 +26,10 @@ def zcrb1(_):
 
     variant = Variant(
         chr_name=chrom,
-        chrom_start=pos,
-        chrom_end=pos,
-        chrom_strand=strand,
-        refsnp_id='ZCRB1:c.411G>A',
+        chr_start=pos,
+        chr_end=pos,
+        chr_strand=strand,
+        snp_id='ZCRB1:c.411G>A',
         ref=ref
     )
 

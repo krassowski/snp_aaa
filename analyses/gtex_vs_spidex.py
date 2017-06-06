@@ -86,8 +86,8 @@ def get_sequence(variant, offset):
         location,
         '{chrom}:{start}-{end}'.format(
             chrom=variant.chr_name,
-            start=variant.chrom_start - offset,
-            end=variant.chrom_end + offset
+            start=variant.chr_start - offset,
+            end=variant.chr_end + offset
         )
     ])
     assert fasta.startswith('>')
@@ -164,7 +164,7 @@ def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=No
         control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
 
         sequence_nearby_variant = variant.sequence
-        nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chrom_start, variant.alts[0], sequence_nearby_variant))
+        nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chr_start, variant.alts[0], sequence_nearby_variant))
 
     dump(handles, nearby, control)
 
@@ -260,7 +260,7 @@ def get_muts_groups_and_seqs(cds_offset):
         if spidex_record.location != 'exonic':
             continue
 
-        key = (variant.chr_name, variant.chrom_start, variant.alts[0], g.name)
+        key = (variant.chr_name, variant.chr_start, variant.alts[0], g.name)
 
         slope = float(slope)
         zscore = float(spidex_record.dpsi_zscore)
@@ -269,7 +269,7 @@ def get_muts_groups_and_seqs(cds_offset):
             record = Record(variant, zscore, g)
             record.spidex_record = spidex_record
             variants[key] = record
-            if variant.chrom_start - g.start < cds_offset or g.end - variant.chrom_end < cds_offset:
+            if variant.chr_start - g.start < cds_offset or g.end - variant.chr_end < cds_offset:
                 record.valid = False
                 continue
         else:
@@ -281,7 +281,7 @@ def get_muts_groups_and_seqs(cds_offset):
             if not record.valid:
                 continue
 
-            if variant.chrom_start - g.start < cds_offset or g.end - variant.chrom_end < cds_offset:
+            if variant.chr_start - g.start < cds_offset or g.end - variant.chr_end < cds_offset:
                 record.valid = False
                 continue
 
@@ -313,7 +313,7 @@ def get_muts_groups_and_seqs(cds_offset):
             r.valid = False
             continue
 
-        if cds[0] > variant.chrom_start - cds_offset or cds[1] < variant.chrom_end + cds_offset:
+        if cds[0] > variant.chr_start - cds_offset or cds[1] < variant.chr_end + cds_offset:
             too_close_cnt += 1
             r.valid = False
             continue
@@ -427,7 +427,7 @@ def gtex_on_spidex(_):
         )
         for variant, tissue, slope, record, g in iterate_gtex_vs_spidex():
             f.write(','.join(map(str, [
-                variant.chr_name, variant.chrom_start, variant.ref,
+                variant.chr_name, variant.chr_start, variant.ref,
                 variant.alts[0], g.name, g.start, g.end, g.strand,
                 slope, tissue, record.dpsi_zscore, record.dpsi_max_tissue
             ])) + '\n')
@@ -522,10 +522,10 @@ def iterate_gtex_vs_spidex(**kwargs):
 
         variant = Variant(
             chr_name=chrom,
-            chrom_start=pos,
-            chrom_end=pos,
-            chrom_strand=g.strand,
-            refsnp_id='-',
+            chr_start=pos,
+            chr_end=pos,
+            chr_strand=g.strand,
+            snp_id='-',
             ref=convert_to_strand(ref, g.strand),
             alts=(convert_to_strand(alt, g.strand),),
             ensembl_gene_stable_id=gene,

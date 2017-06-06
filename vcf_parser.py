@@ -1,7 +1,7 @@
 from __future__ import print_function
 import vcf
 from berkley_hash_set import BerkleyHashSet
-from fasta_sequence_db import complement
+from parse_variants import complement
 
 
 class UnknownChromosome(Exception):
@@ -29,14 +29,20 @@ class ParsingError(Exception):
     pass
 
 
+def str_or_empty(x):
+    if x is None:
+        return '.'
+    else:
+        return str(x)
+
+
 class VariantCallFormatParser(object):
 
-    def __init__(self, vcf_sources, default_source=None):
+    def __init__(self, vcf_sources):
         """
         vcf_locations: mappings name -> location for VCF files to use
         default_source: name of default VCF file to be used
         """
-        self.default_source = default_source
         self.vcf_sources = vcf_sources
         self.readers = {}
         for source, data in vcf_sources.iteritems():
@@ -61,11 +67,11 @@ class VariantCallFormatParser(object):
 
         return data
 
-    def get_by_variant(self, variant, source=None, require_id_match=True):
+    def get_by_variant(self, variant):
         """Get vcf data for given variant from one of available VCF files.
 
         If source is given, the VCF file matching this source will be used;
-        otherwise the source will be deduced from variant.refsnp_source attr
+        otherwise the source will be deduced from variant.source attr
 
         Returns:
             list of vcf records as returned by vcf.fetch()
@@ -82,31 +88,25 @@ class VariantCallFormatParser(object):
         # and represent them as a range
         # pos[2] += 1
 
-        pos = [variant.chr_name, variant.chrom_start - 1, variant.chrom_end]
+        pos = [variant.chr_name, variant.chr_start - 1, variant.chr_end]
 
         # quite common this will happen when variant is an insertion
         if pos[1] == pos[2]:
             pos[1] -= 1
 
-        if not source:
-            source = variant.refsnp_source
+        source = variant.source
 
-        if source not in self.readers:
-            print('Unknown source: %s' % source)
-            print(variant)
+        if source == 'HGMD-PUBLIC':
+            # compare:
+            # 1	2160487	CD129808	CG	C	.	.	HGMD-PUBLIC_20162;TSA=deletion;E_Phenotype_or_Disease;AA=G
+            # 11	64521035	CI076992	G	G.	.	.	HGMD-PUBLIC_20162;TSA=insertion;E_Phenotype_or_Disease
+            # 11	64522269	HI080013	A	A.	.	.	HGMD-PUBLIC_20162;TSA=insertion;E_Phenotype_or_Disease
+            # 159993316	27511	2160488	2160488	1	153979486	HGMD_MUTATION	CD129808	1	\N	8	coding_sequence_variant,upstream_gene_variant,regulatory_region_variant	23,29	12	0	\N	\N	\N	\N	418	\N	1
+            # 159984197	27504	64521037	64521036	1	153987030	HGMD_MUTATION	CI076992	1	\N	8	coding_sequence_variant,downstream_gene_variant,upstream_gene_variant	23,29	10	0	\N	\N	\N	\N	418	\N	1
+            # 159984221	27504	64522271	64522270	1	154081899	HGMD_MUTATION	HI080013	1	\N	8	coding_sequence_variant,upstream_gene_variant,regulatory_region_variant	23,27,29	10	0	\N	\N	\N	\N	418	\N	1
+            pos[1] -= 2
 
-            source = self.default_source
-
-            if not source:
-                raise ParsingError(
-                    'Either source or default_source must be present'
-                    ' to choose vcf file to look up'
-                )
-
-        if require_id_match:
-            return self.get_by_id(source, pos, variant.refsnp_id)
-        else:
-            return self.get_by_pos(source, pos)
+        return self.get_by_id(source, pos, variant.snp_id)
 
     def get_by_pos(self, reader_name, pos):
         """Ultimately all record getters end up reaching for get_by_pos
@@ -143,7 +143,7 @@ class VariantCallFormatParser(object):
 
         return vcf_data
 
-    def parse(self, vcf_data, variant_source, strand):
+    def parse(self, vcf_data, variant_source, strand, convert_to_strand=True):
         """Parse VCF data, retrieved with retrieve() func, with
         compliance to VCF 4.3 specification, particularly:
 
@@ -156,6 +156,10 @@ class VariantCallFormatParser(object):
         or other events where all alleles have at least
         one base represented in their Strings"
 
+        All alleles are strings.
+            If an allele represents deletion/insertion, appropriate allele, is given as '-'.
+            A lacking allele (i.e. '.' in VCF file') is indicated by '.'.
+
         Returns:
             tuple: (position, reference allele, alternative alleles)
         """
@@ -166,7 +170,8 @@ class VariantCallFormatParser(object):
             raise ParsingError('Lack of ALT.')
 
         ref = str(vcf_data.REF)
-        alts = list(map(str, vcf_data.ALT))
+
+        alts = list(map(str_or_empty, vcf_data.ALT))
 
         # let's recognize indel mutations and remove vcf padding from alt/ref variables
         left = 0
@@ -206,16 +211,21 @@ class VariantCallFormatParser(object):
                 strands = vcf_data.INFO['STRAND']
 
                 if len(strands) > 1:
-                    print('More than one strand specified: ' + ', '.join(map(str, strands)))
-                    print(vcf_data, strands, variant_source)
+                    raise ParsingError(
+                        'More than one strand specified: ' + ', '.join(map(str, strands)),
+                        vcf_data, strands, variant_source
+                    )
 
                 vcf_strand = -1 if strands[0] == '-' else 1
+                # print(vcf_strand, strand)
 
                 if strand != vcf_strand:
-                    print('Given strand does not match VCF strand for')
-                    print(vcf_data, vcf_strand, strand, variant_source)
+                    raise ParsingError(
+                        'Given strand does not match VCF strand for',
+                        vcf_data, vcf_strand, strand, variant_source
+                    )
 
-            if strand == -1:
+            if convert_to_strand and strand == -1:
                 ref = complement(ref)[::-1]
                 alts = [complement(alt)[::-1] for alt in alts]
 

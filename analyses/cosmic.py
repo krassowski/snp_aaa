@@ -27,7 +27,7 @@ def group_variants_for_cosmic(variants_by_gene):
         for variant in variants:
             # The problem with the ensembl's biomart is that it returns records
             # from cosmic without information about the transcript, so we have
-            # often a few identical records with only the refsnp_id different,
+            # often a few identical records with only the snp_id different,
             # as for example: COSM3391893, COSM3391894
             # Fortunately the transcript id is encoded inside vcf_data retrieved
             # from biomart inside the gene identifier (if it is absent, then we
@@ -89,7 +89,7 @@ def summarize_copy_number_expression(variants_by_gene):
         variants = [
             variant
             for variant in variants
-            if variant.refsnp_source == 'COSMIC'
+            if variant.source == 'COSMIC'
         ]
         """
 
