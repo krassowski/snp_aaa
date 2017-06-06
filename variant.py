@@ -78,7 +78,7 @@ class Variant(SlottedObject):
     # sequence offset
     offset = 20
 
-    attributes = (
+    __slots__ = (
         'snp_id',
         'source',
         'chr_name',
@@ -92,16 +92,21 @@ class Variant(SlottedObject):
         #'refseq_transcript'
     )
 
-    __slots__ = attributes
-
     def __init__(self, **kwargs):
 
-        for attr in self.attributes:
+        for attr in self.__slots__:
             setattr(self, attr, None)
 
-        self.affected_transcripts = set()
+        self.affected_transcripts = []
 
         super(Variant, self).__init__(**kwargs)
+
+    @property
+    def alts(self):
+        alts = set()
+        for transcript in self.affected_transcripts:
+            alts.update(transcript.poly_aaa.keys())
+        return alts
 
     def as_hgvs(self):
         # TODO: what to do for multiple alts?

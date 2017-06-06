@@ -30,7 +30,7 @@ SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_
 TRANSCRIPT_DB_PATH = '/media/ramdisk/Homo_sapiens.GRCh37.cds.all.fa'
 
 
-transcripts = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
+transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
 
 
 vcf_mutation_sources = {
@@ -93,14 +93,10 @@ def select_poly_a_related_variants(variants):
 
 
 def all_poly_a_variants(variants):
-    total = len(variants)
+    poly_a_related_variants = select_poly_a_related_variants(variants.itervalues())
 
-    for gene, variants in tqdm(variants.iteritems(), total=total):
-
-        poly_a_related_variants = select_poly_a_related_variants(variants)
-
-        for variant in poly_a_related_variants:
-            yield variant
+    for variant in poly_a_related_variants:
+        yield variant
 
 
 def perform_analyses(args, variants=None):
@@ -118,6 +114,7 @@ def perform_analyses(args, variants=None):
             current_reporter(variants)
 
         except Exception:
+            print('Analysis %s failed' % reporter_name)
             traceback.print_exc()
 
 

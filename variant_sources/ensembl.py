@@ -6,11 +6,13 @@ from contextlib import contextmanager
 from multiprocessing import Manager, Process
 
 import itertools
+
+from pyfaidx import Fasta
 from tqdm import tqdm
 from cache import args_aware_cacheable
 from commands import SourceSubparser
 from parse_variants import OFFSET, complement
-from snp_parser import transcripts, vcf_mutation_sources
+from snp_parser import vcf_mutation_sources, TRANSCRIPT_DB_PATH
 from variant import Variant, AffectedTranscript, PolyAAAData
 from variant_sources import variants_getter
 from snp_parser import jit
@@ -96,8 +98,8 @@ ensembl_args.add_command(
 
 ensembl_args.add_command(
     '--location',
-    #default='/media/ramdisk/head/'
-    default='ensembl/v88/GRCh37/variation_database/head/'
+    default='/media/ramdisk/head/'
+    #default='ensembl/v88/GRCh37/variation_database/head/'
 )
 
 
@@ -177,45 +179,7 @@ ensembl_args.add_command(
 
 
 @jit
-def get_sequence(transcript, raw_start, raw_end):
-
-    if not (raw_start and raw_end):
-        # print('No sequence coordinates for %s transcript' % transcript.ensembl_id)
-        return
-
-    if transcript not in transcripts:
-        return
-
-    if raw_end - raw_start > 2 * OFFSET:
-        # print('Skipping transcript %s of variant %s: too wide variation' % (transcript.ensembl_id, variant.snp_id))
-        return
-
-    whole_seq = str(transcripts[transcript])
-
-    if whole_seq:
-        start = raw_start - 1
-        end = raw_end
-
-        cut_from = start - OFFSET
-        cut_to = end + OFFSET
-
-        seq = whole_seq[max(cut_from, 0):max(cut_to, 0)]
-
-        # if we are on the edge of sequence
-        if cut_from < 0:
-            seq = '-' * (-cut_from) + seq
-        if cut_to > len(whole_seq):
-            seq += '-' * (cut_to - len(whole_seq))
-
-        assert len(seq) == OFFSET * 2 + raw_end - raw_start + 1
-    else:
-        return
-
-    return seq
-
-
-@jit
-def get_poly_a(sequence, alternative_alleles):
+def analyze_poly_aaa(sequence, alternative_alleles):
 
     has_aaa, before_len = poly_a(
         sequence,
@@ -251,15 +215,13 @@ class ToFewAlleles(Exception):
     pass
 
 
-def parse_alleles(alleles, transcript, convert_all=True):
+def parse_alleles(alleles, transcript):
     sequence_ref_allele = transcript.sequence[OFFSET:-OFFSET]
 
     if not alleles:
         print('No alleles for:')
+        print(transcript)
         return
-
-    #if len(alleles) == 1:
-    #    raise ToFewAlleles()
 
     if len(alleles) == 2:
         allele = alleles[1]
@@ -270,14 +232,9 @@ def parse_alleles(alleles, transcript, convert_all=True):
     alleles = ['' if a == '-' else a for a in alleles]
 
     if transcript.strand == -1:
-        if convert_all:
-            alleles = [
-                complement(alt)[::-1] for alt in alleles
-            ]
-        else:
-            alleles = [alleles[0]] + [
-                complement(alt)[::-1] for alt in alleles[1:]
-            ]
+        alleles = [
+            complement(alt)[::-1] for alt in alleles
+        ]
 
     if sequence_ref_allele != alleles[0]:
         raise AlleleMismatch(sequence_ref_allele, alleles[0])
@@ -327,20 +284,6 @@ def parse_short_tandem_repeat(allele, alleles):
     else:
         raise ParsingError('Failed to parse STR', alleles, allele)
 
-
-# Warning: adding jit causes wrong behaviour!
-#@jit
-def analyze_poly_aaa(transcript, alleles):
-    """Add poly_aaa to AffectedTranscript if possible.
-    Returns True if poly_aaa has been detected, False-considered value otherwise."""
-    transcript.poly_aaa = get_poly_a(transcript.sequence, alleles[1:])
-
-    for poly_a in transcript.poly_aaa.values():
-        if poly_a.has or poly_a.will_have:
-            #print('True')
-            return True
-
-
 vcf_parser = VariantCallFormatParser(vcf_mutation_sources)
 
 
@@ -374,81 +317,7 @@ def int_or_none(x):
     return int(x)
 
 
-@variants_getter
-def ensembl(args):
-    """Load variants from Ensembl raw database files.
-    Only variants belonging to coding sequences will be loaded.
-
-    """
-
-    print(args)
-
-    loc = args.location
-    accepted_consequences = args.consequences
-
-    # specified with --genes_list and filtered with --filters.
-    # gene_names = args.genes_list
-    # filters = args.filters
-
-    transcript_strand = {}
-    filename = loc + 'transcript.txt.gz'
-    with fast_gzip_read(filename) as f:
-        for line in tqdm(f, total=count_lines(filename)):
-            data = line.split('\t')
-            transcript_strand[data[14]] = int(data[6])
-
-    types = OrderedDict(
-        (
-            ('transcript_variation_id', int),
-            ('variation_feature_id', int),
-            ('feature_stable_id', str),
-            ('allele_string', str),
-            ('somatic', bool),
-            ('consequence_types', str),
-            ('cds_start', int),
-            ('cds_end', int),
-            ('cdna_start', int),
-            ('cdna_end', int),
-            ('translation_start', int),
-            ('translation_end', int),
-            ('distance_to_transcript', int),
-            ('codon_allele_string', str),
-            ('pep_allele_string', str),
-            ('hgvs_genomic', str),
-            ('hgvs_transcript', str),
-            ('hgvs_protein', str),
-            ('polyphen_prediction', str),
-            ('polyphen_score', float),
-            ('sift_prediction', str),
-            ('sift_score', float),
-            ('display', bool)
-        )
-    )
-    keys = types.keys()
-    somatic_pos = keys.index('somatic')
-    consequence_pos = keys.index('consequence_types')
-
-    @jit
-    def good_consequence(data):
-        # to restrict to somatic mutations, use: and data[somatic_pos] == '1'
-        return not accepted_consequences.isdisjoint(data[consequence_pos].split(','))
-
-    filename = loc + 'transcript_variation.txt.gz'
-    by_id, to_check_later = load_variants_and_transcripts_if_poly_aaa(
-        filename, good_consequence, transcript_strand
-    )
-    gc.collect()
-
-    print('Accepted:', len(by_id))
-
-    seq_region = {}
-    # seq_region_id, name, cord_system_fk
-    filename = loc + 'seq_region.txt.gz'
-    with fast_gzip_read(filename) as f:
-        for line in tqdm(f, total=count_lines(filename)):
-            data = line.split('\t')
-            seq_region[int(data[0])] = data[1]
-
+def load_variation_sources(loc):
     sources = {}
     # 'source_id', 'name', 'version', 'description', 'url', 'type', 'somatic_status', 'data_types'
     filename = loc + 'source.txt.gz'
@@ -457,61 +326,38 @@ def ensembl(args):
             data = line.split('\t')
             sources[int(data[0])] = data[1]
     gc.collect()
-
-    filename = loc + 'variation_feature.txt.gz'
-    load_variants_details(by_id, filename, seq_region, sources, to_check_later)
-    gc.collect()
-
-    by_name = group_variants_by_snp_id(by_id)
-    gc.collect()
-
-    out = group_variants_in_chunks(by_name)
-
-    print('Enesmbl variants ready for parsing')
-    return out
-    # THERE ARE MANY GENES FOR A SINGLE VARIANT, HENCE I DO NOT ORGANISE VARIANTS BY GENES
+    return sources
 
 
-def save_if_poly_a_related(by_id, transcript, parsed_alleles, internal_variant_id):
-    detected = analyze_poly_aaa(transcript, parsed_alleles)
+def load_chromosome_and_region_names(loc):
+    seq_region = {}
+    # seq_region_id, name, cord_system_fk
+    filename = loc + 'seq_region.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
+            data = line.split('\t')
+            seq_region[int(data[0])] = data[1]
+    return seq_region
 
-    if not detected:
-        return
 
-    print('Poly(A) detected in:', transcript.sequence, internal_variant_id)
+def load_transcript_strands(loc):
+    transcript_strand = {}
+    filename = loc + 'transcript.txt.gz'
+    with fast_gzip_read(filename) as f:
+        for line in tqdm(f, total=count_lines(filename)):
+            data = line.split('\t')
+            transcript_strand[data[14]] = int(data[6])
+    return transcript_strand
 
-    ref = parsed_alleles[0]
-    # TODO: reintroduce this check later in sanity check
-    #"""
-    v = by_id.get(internal_variant_id, None)
 
-    if v:
-        if not v.ref:
-            v.ref = ref
-        elif v.ref != ref:
-            print(
-                'Reference does not match: %s vs %s '
-                'for variant %s, with transcripts: %s %s'
-                %
-                (
-                    v.ref,
-                    ref,
-                    internal_variant_id,
-                    transcript.ensembl_id,
-                    ', '.join(t.ensembl_id for t in v.affected_transcripts)
-                )
-            )
-            return
+def get_poly_aaa(transcript, parsed_alleles):
+    """Return poly_aaa data for AffectedTranscript it will be poly_aaa related"""
+    poly_aaa = analyze_poly_aaa(transcript.sequence, parsed_alleles[1:])
 
-        v.affected_transcripts.add(transcript)
-        by_id[internal_variant_id] = v
-    else:
-        #"""
-        by_id[internal_variant_id] = Variant(
-            ref=ref,
-            affected_transcripts={transcript}
-        )
-    return True
+    for poly_a in poly_aaa.values():
+        if poly_a.has or poly_a.will_have:
+            print('Poly(A) detected in:', transcript.sequence)
+            return poly_aaa
 
 
 def grouper(iterable, chunk_size, fill_value=None):
@@ -519,14 +365,122 @@ def grouper(iterable, chunk_size, fill_value=None):
     return itertools.izip_longest(fillvalue=fill_value, *args)
 
 
+def aggregate_transcripts(transcript_variant_pairs):
+    transcripts_by_id = defaultdict(list)
+    for internal_variant_id, transcript, alleles in transcript_variant_pairs:
+        transcripts_by_id[internal_variant_id].append((transcript, alleles))
+    return transcripts_by_id
+
+
+@variants_getter
+def ensembl(args):
+    """Load variants from Ensembl raw database files.
+    Only variants belonging to coding sequences will be loaded.
+    """
+    print(args)
+
+    path = args.location
+    accepted_consequences = args.consequences
+
+    transcript_strand = load_transcript_strands(path)
+    seq_region = load_chromosome_and_region_names(path)
+    sources = load_variation_sources(path)
+
+    # multiple threads:
+    transcript_variant_pairs = load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences)
+    accepted_transcript_variant_pairs, to_check_transcript_variant_pairs = transcript_variant_pairs
+
+    # those two can run in two separate processes by both have to be single-threaded.
+    accepted_transcripts_by_variant_id = aggregate_transcripts(accepted_transcript_variant_pairs)
+    to_check_transcripts_by_variant_id = aggregate_transcripts(to_check_transcript_variant_pairs)
+
+    # multiple threads:
+    variants_by_id = load_variants_details(
+        path,
+        seq_region, sources,
+        accepted_transcripts_by_variant_id, to_check_transcripts_by_variant_id
+    )
+
+    print('Accepted:', len(variants_by_id))
+
+    variants_by_name = group_variants_by_snp_id(variants_by_id)
+
+    print('Enesmbl variants ready for parsing')
+    return variants_by_name
+
 num_workers = 6
 manager = Manager()
 
 
-def load_variants_and_transcripts_if_poly_aaa(
-        filename, good_consequence, transcript_strand):
+def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences):
 
-    def do_work(in_queue, by_id, to_check_later):
+    filename = path + 'transcript_variation.txt.gz'
+
+    headers = [
+        'transcript_variation_id', 'variation_feature_id', 'feature_stable_id',
+        'allele_string',
+        'somatic',
+        'consequence_types',
+        'cds_start', 'cds_end',
+        'cdna_start', 'cdna_end',
+        'translation_start', 'translation_end',
+        'distance_to_transcript',
+        'codon_allele_string',
+        'pep_allele_string',
+        'hgvs_genomic', 'hgvs_transcript', 'hgvs_protein',
+        'polyphen_prediction', 'polyphen_score',
+        'sift_prediction', 'sift_score',
+        'display'
+    ]
+    # somatic_pos = headers.index('somatic')
+    consequence_pos = headers.index('consequence_types')
+
+    @jit
+    def good_consequence(data):
+        # to restrict to somatic mutations, use: and data[somatic_pos] == '1'
+        return not accepted_consequences.isdisjoint(data[consequence_pos].split(','))
+
+    def do_work(in_queue, accepted_pairs, to_check_pairs):
+
+        transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
+
+        @jit
+        def get_sequence(transcript, raw_start, raw_end):
+
+            if not (raw_start and raw_end):
+                # print('No sequence coordinates for %s transcript' % transcript.ensembl_id)
+                return
+
+            if transcript not in transcripts_db:
+                return
+
+            if raw_end - raw_start > 2 * OFFSET:
+                # print('Skipping transcript %s of variant %s: too wide variation' % (transcript.ensembl_id, variant.snp_id))
+                return
+
+            whole_seq = str(transcripts_db[transcript])
+
+            if whole_seq:
+                start = raw_start - 1
+                end = raw_end
+
+                cut_from = start - OFFSET
+                cut_to = end + OFFSET
+
+                seq = whole_seq[max(cut_from, 0):max(cut_to, 0)]
+
+                # if we are on the edge of sequence
+                if cut_from < 0:
+                    seq = '-' * (-cut_from) + seq
+                if cut_to > len(whole_seq):
+                    seq += '-' * (cut_to - len(whole_seq))
+
+                assert len(seq) == OFFSET * 2 + raw_end - raw_start + 1
+            else:
+                return
+
+            return seq
+
         while True:
             lines = in_queue.get()
 
@@ -575,11 +529,7 @@ def load_variants_and_transcripts_if_poly_aaa(
 
                 # TODO: why some PhenCode variations ends with 'puh'?
                 if alleles[1] in ('COSMIC_MUTATION', 'HGMD_MUTATION', 'PhenCode_variation') or alleles[1].endswith('puh'):
-                    if internal_variant_id not in to_check_later:
-                        to_check_later[internal_variant_id] = list()
-                    to_check_later[internal_variant_id].append(
-                        (transcript, alleles)
-                    )
+                    to_check_pairs.append((internal_variant_id, transcript, alleles))
                     continue
 
                 try:
@@ -591,11 +541,7 @@ def load_variants_and_transcripts_if_poly_aaa(
                     # because checking which allele is reference allele in VCF file takes quite a long time, I cannot
                     # am reluctant to check this for each variant. Instead, checking it only for rare cases like this
                     # makes whole process way much faster and still reliable.
-                    if internal_variant_id not in to_check_later:
-                        to_check_later[internal_variant_id] = list()
-                    to_check_later[internal_variant_id].append(
-                        (transcript, alleles)
-                    )
+                    to_check_pairs.append((internal_variant_id, transcript, alleles))
                     continue
                 except (KeyError, ParsingError) as e:
                     print(e)
@@ -605,19 +551,24 @@ def load_variants_and_transcripts_if_poly_aaa(
                     show_context(transcript.sequence)
                     continue
 
-                save_if_poly_a_related(by_id, transcript, alleles, internal_variant_id)
+                poly_aaa = get_poly_aaa(transcript, alleles)
 
-    by_id = manager.dict()
-    to_check_later = manager.dict()
+                if poly_aaa:
+                    transcript.poly_aaa = poly_aaa
+                    accepted_pairs.append((internal_variant_id, transcript, alleles))
+
+    accepted_transcript_variant_pairs = manager.list()
+    to_check_transcript_variant_pairs = manager.list()
+
     work = manager.Queue(num_workers)
 
     pool = []
     for i in xrange(num_workers):
-        p = Process(target=do_work, args=(work, by_id, to_check_later))
+        p = Process(target=do_work, args=(work, accepted_transcript_variant_pairs, to_check_transcript_variant_pairs))
         p.start()
         pool.append(p)
 
-    chunk_size = 100000
+    chunk_size = 1000000
     with fast_gzip_read(filename) as f:
         iterator = grouper(f, chunk_size)
         for i in tqdm(iterator, total=count_lines(filename) / chunk_size):
@@ -632,8 +583,9 @@ def load_variants_and_transcripts_if_poly_aaa(
         p.join()
 
     print('Joined all')
+    gc.collect()
 
-    return by_id, to_check_later
+    return accepted_transcript_variant_pairs, to_check_transcript_variant_pairs
 
 
 def group_variants_in_chunks(by_name, chunk_size=15000):
@@ -664,7 +616,7 @@ def group_variants_by_snp_id(by_id):
             no_name += 1
             continue
         if v.snp_id in by_name:
-            by_name[v.snp_id].affected_transcripts.update(v.affected_transcripts)
+            by_name[v.snp_id].affected_transcripts.extend(v.affected_transcripts)
             no_u += 1
         else:
             by_name[v.snp_id] = v
@@ -675,17 +627,15 @@ def group_variants_by_snp_id(by_id):
         print('SNP ids having more than one variant-transcript pair: %s' % no_u)
 
     print('Number of unique SNP_id-based variant groups: %s' % len(by_name))
+    gc.collect()
     return by_name
 
 
-def load_variants_details(by_id, filename, seq_region, sources, to_check_later):
+def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_check_by_id):
     """
     feature_table = [
         'variation_feature_id',
-        'seq_region_id',
-        'seq_region_start',
-        'seq_region_end',
-        'seq_region_strand',
+        'seq_region_id', 'seq_region_start', 'seq_region_end', 'seq_region_strand',
         'variation_id',
         'allele_string',
         'variation_name',
@@ -696,26 +646,107 @@ def load_variants_details(by_id, filename, seq_region, sources, to_check_later):
         'variation_set_id',
         'class_attrib_id',
         'somatic',
-        'minor_allele',
-        'minor_allele_freq',
-        'minor_allele_count',
+        'minor_allele', 'minor_allele_freq', 'minor_allele_count',
         'alignment_quality',
         'evidence_attribs',
         'clinical_significance',
         'display',
     ]
-
-    Args:
-        by_id:
-        filename:
-        seq_region:
-        sources:
-        to_check_later:
-
-    Returns:
     """
+    filename = path + 'variation_feature.txt.gz'
 
-    def do_work(in_queue, by_id, to_check_later):
+    def test_poly_a_and_amend_transcript_if_present(transcript, variant, alleles):
+        try:
+            pos, ref, alts = get_alt_alleles(variant, transcript.strand, convert_to_strand=False)
+        except ParsingError as e:
+            if variant.source == 'COSMIC':
+                # TODO: more specific exception
+                # some COSMIC mutations are mapped twice to ensembl but only one
+                # position is given in Cosmic VCF file. In such cases, I stick with
+                # Cosmic VCF file. There is no need to print out such cases
+                pass
+            else:
+                print('ParsingError:', e.message, e.args)
+                print(variant.snp_id, alleles)
+            return
+
+        if any('.' in alt for alt in alts):
+            if variant.source == 'HGMD-PUBLIC':
+                pass
+                # TODO: count this
+                # print('Skipping variant from HGMD without complete allele data: %s' % v.snp_id)
+            else:
+                raise ParsingError('IncorrectAllele, with dot, not from HGMD')
+            return
+
+        raw_alleles = [ref] + alts
+
+        try:
+            alleles = parse_alleles(raw_alleles, transcript)
+        except AlleleMismatch as e:
+            if variant.source == 'COSMIC':
+
+                # Cosmic represents insertions AND bigger deletions as a range (cds start != cds end):
+                # though other sources represent insertions as a point event (cds start == cds end).
+                # This causes COSMIC insertions to be wrongly recognised and AlleleMismatch to be raised.
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=111380 - deletion (start = end)
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=1223920 - substitution (start = end)
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=4699526 - insertion (start != end)
+                #   http://grch37-cancer.sanger.ac.uk/cosmic/mutation/overview?id=4612790 - big deletion (start != end)
+
+                # Let's handle insertions:
+                if ref == '' and all(len(alt) > len(ref) for alt in alts):
+                    # sequence was too big by 'diff'
+                    diff = transcript.cds_end - transcript.cds_start + 1
+
+                    sequence = transcript.sequence[:-diff]
+                    transcript.cds_end = transcript.cds_start
+                    assert sequence[OFFSET:-OFFSET] == ref
+
+                    transcript.sequence = sequence
+
+                else:
+                    # sometimes ensembl has wrongly stated ref allele too.
+                    print('AlleleMismatch:', e.args)
+                    print(variant)
+                    print(transcript)
+                    show_context(transcript.sequence)
+                    return
+
+                try:
+                    alleles = parse_alleles(raw_alleles, transcript)
+                except AlleleMismatch as e:
+                    print('AlleleMismatch:', e.args)
+                    return
+                except (KeyError, ParsingError) as e:
+                    print(raw_alleles)
+                    print(transcript)
+                    show_context(transcript.sequence)
+                    print(variant)
+                    return
+
+            else:
+                print('AlleleMismatch:', raw_alleles, variant.snp_id, e.args, transcript.strand)
+                show_context(transcript.sequence)
+                return
+
+        except (KeyError, ParsingError) as e:
+            print(raw_alleles)
+            print(transcript)
+            show_context(transcript.sequence)
+            print(variant)
+            return
+
+        poly_aaa = get_poly_aaa(transcript, alleles)
+
+        if poly_aaa:
+            transcript.poly_aaa = poly_aaa
+            return True
+
+    def do_work(in_queue, accepted_by_id, to_check_by_id, variants_by_id_out):
+        # now I have a guarantee that a single ID will come only in this process (!)
+        variant_by_id_buffer = {}
+
         while True:
             lines = in_queue.get()
 
@@ -732,98 +763,52 @@ def load_variants_details(by_id, filename, seq_region, sources, to_check_later):
                 data = line.split('\t')
                 variant_id = int(data[0])
 
-                in_by_id = variant_id in by_id
-                in_to_check_later = variant_id in to_check_later
+                in_accepted = variant_id in accepted_by_id
+                in_to_check = variant_id in to_check_by_id
 
-                if in_to_check_later and (not in_by_id):
-                    by_id[variant_id] = Variant()
-                    in_by_id = True
+                if not (in_accepted or in_to_check):
+                    continue
 
-                if in_by_id:
-                    variant = by_id[variant_id]
+                variant = Variant(
+                    chr_name=seq_region[int(data[1])],
+                    chr_start=int(data[2]),
+                    chr_end=int(data[3]),
+                    chr_strand=data[4],
+                    snp_id=data[7],
+                    source=sources[int(data[10])]
+                )
 
-                    variant.chr_name = seq_region[int(data[1])]
-                    variant.chr_start = int(data[2])
-                    variant.chr_end = int(data[3])
-                    variant.chr_strand = data[4]
-                    variant.snp_id = data[7]
-                    variant.source = sources[int(data[10])]
+                if in_accepted:
+                    variant.affected_transcripts = [
+                        transcript_and_allele[0] for transcript_and_allele in accepted_by_id[variant_id]
+                    ]
 
-                    by_id[variant_id] = variant
+                if in_to_check:
+                    newly_accepted_transcripts = []
+                    for transcript, alleles in to_check_by_id[variant_id]:
+                        accepted = test_poly_a_and_amend_transcript_if_present(transcript, variant, alleles)
+                        if accepted:
+                            newly_accepted_transcripts.append(transcript)
 
-                if in_to_check_later:
-                    saved = False
+                    variant.affected_transcripts.extend(newly_accepted_transcripts)
 
-                    checked_transcripts = set()
+                if variant.affected_transcripts:
+                    ref = variant.affected_transcripts[0].sequence[OFFSET:-OFFSET]
+                    if any(ref != t.sequence[OFFSET:-OFFSET] for t in variant.affected_transcripts):
+                        print('Mismatch between transcripts reference allele!')
+                        print(variant)
+                        continue
+                    variant.ref = ref
+                    variant_by_id_buffer[variant_id] = variant
 
-                    for transcript, alleles in to_check_later[variant_id]:
-                        checked_transcripts.add(transcript)
-                        try:
-                            pos, ref, alts = get_alt_alleles(variant, transcript.strand, convert_to_strand=False)
-                        except ParsingError as e:
-                            if variant.source == 'COSMIC':
-                                # TODO: more specific exception
-                                # some COSMIC mutations are mapped twice to ensembl but only one
-                                # position is given in Cosmic VCF file. In such cases, I stick with
-                                # Cosmic VCF file. There is no need to print out such cases
-                                continue
-                            else:
-                                print('ParsingError:', e.message, e.args)
-                                print(variant_id, variant.snp_id, alleles)
-                            continue
+            variants_by_id_out.update(variant_by_id_buffer)
 
-                        if any('.' in alt for alt in alts):
-                            if variant.source == 'HGMD-PUBLIC':
-                                pass
-                                # TODO: count this
-                                # print('Skipping variant from HGMD without complete allele data: %s' % v.snp_id)
-                            else:
-                                raise ParsingError('IncorrectAllele, with dot, not from HGMD')
-                            continue
-
-                        raw_alleles = [alleles[0]] + alts
-
-                        try:
-                            alleles = parse_alleles(raw_alleles, transcript)
-                        except AlleleMismatch as e:
-                            if variant.source == 'COSMIC':
-                                # sometimes ensembl has wrongly stated ref allele too.
-                                print('Variant %s from COSMIC had wrongly stated ref alleles' % variant.snp_id)
-                                try:
-                                    alleles = parse_alleles(raw_alleles, transcript, convert_all=False)
-                                except AlleleMismatch as e:
-                                    print(AlleleMismatch, e.args)
-                                except (KeyError, ParsingError) as e:
-                                    print(raw_alleles)
-                                    print(variant_id)
-                                    print(transcript)
-                                    show_context(transcript.sequence)
-                                    print(variant)
-
-                            else:
-                                print('AlleleMismatch:', raw_alleles, variant.snp_id, e.args, transcript.strand)
-                                show_context(transcript.sequence)
-                                continue
-                        except (KeyError, ParsingError) as e:
-                            print(raw_alleles)
-                            print(variant_id)
-                            print(transcript)
-                            show_context(transcript.sequence)
-                            print(variant)
-
-                        saved = save_if_poly_a_related(by_id, transcript, alleles, variant_id)
-                        #by_id[variant_id] = variant
-
-                    if not saved and not (variant.affected_transcripts - checked_transcripts):
-                        del by_id[variant_id]
-
-                    # TODO: sanity check
-                    # assert v.chr_strand == transcript.strand
+    variants_by_id_out = manager.dict()
 
     work = manager.Queue(num_workers)
     pool = []
     for i in xrange(num_workers):
-        p = Process(target=do_work, args=(work, by_id, to_check_later))
+        p = Process(target=do_work, args=(work, all_accepted_by_id, all_to_check_by_id, variants_by_id_out))
         p.start()
         pool.append(p)
 
@@ -841,4 +826,7 @@ def load_variants_details(by_id, filename, seq_region, sources, to_check_later):
     for p in pool:
         p.join()
 
+    gc.collect()
     print('Joined all')
+
+    return variants_by_id_out
