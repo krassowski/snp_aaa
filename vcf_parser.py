@@ -1,28 +1,10 @@
 from __future__ import print_function
 import vcf
-from berkley_hash_set import BerkleyHashSet
 from parse_variants import complement
 
 
 class UnknownChromosome(Exception):
     pass
-
-
-def get_hgnc(ensembl_transcript_id):
-
-    hgnc_by_ensembl = BerkleyHashSet('hgnc_by_ensembl.db')
-
-    names = hgnc_by_ensembl[ensembl_transcript_id]
-
-    # convert set to a list for indexing support
-    names = [name for name in names]
-
-    if len(names) == 0:
-        raise ValueError('No HGNC for transcript: ' + ensembl_transcript_id)
-    elif len(names) > 1:
-        print('Multiple HGNC identifiers for transcript: ' + ensembl_transcript_id)
-
-    return names[0]
 
 
 class ParsingError(Exception):
@@ -53,19 +35,6 @@ class VariantCallFormatParser(object):
                 target = data['aliased_vcf']
                 vcf_sources[source] = vcf_sources[target]
                 self.readers[source] = self.readers[target]
-
-    def get_by_transcript(self, transcript, pos, source):
-
-        hgnc_name = get_hgnc(transcript.ensembl_id)
-
-        record_id = ''.join([hgnc_name, ':c.', transcript.cds_start])
-
-        data = []
-        for record in self.get_by_pos(source, pos):
-            if record.ID.startswith(record_id):
-                data.append(record)
-
-        return data
 
     def get_by_variant(self, variant):
         """Get vcf data for given variant from one of available VCF files.
