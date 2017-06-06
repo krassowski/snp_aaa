@@ -590,13 +590,13 @@ def get_all_zscore():
 
 
 def count_spidex():
-    from variant_sources.ensembl import count_lines
+    from multiprocess import count_lines
     return count_lines(SPIDEX_LOCATION)
 
 
 def _get_all_zscores():
     zscores = []
-    from variant_sources.ensembl import fast_gzip_read
+    from multiprocess import fast_gzip_read
 
     print('Counting...')
 

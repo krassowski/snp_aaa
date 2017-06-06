@@ -1,23 +1,21 @@
 from __future__ import print_function
-import subprocess
-from collections import defaultdict, OrderedDict
-import gc
-from contextlib import contextmanager
-from multiprocessing import Manager, Process
 
-import itertools
+import gc
+from collections import defaultdict
 
 from pyfaidx import Fasta
 from tqdm import tqdm
-from cache import args_aware_cacheable
+
+import multiprocess
 from commands import SourceSubparser
+from multiprocess import fast_gzip_read, count_lines, manager
 from parse_variants import OFFSET, complement
+from poly_a import poly_a
+from snp_parser import jit
 from snp_parser import vcf_mutation_sources, TRANSCRIPT_DB_PATH
 from variant import Variant, AffectedTranscript, PolyAAAData
 from variant_sources import variants_getter
-from snp_parser import jit
 from vcf_parser import VariantCallFormatParser, ParsingError
-from poly_a import poly_a
 
 
 def show_context(seq, start=OFFSET, end=-OFFSET):
@@ -48,38 +46,6 @@ def gene_names_from_patacsdb_csv(limit_to=None):
     return list(genes)
 
 
-@contextmanager
-def fast_gzip_read(file_name, single_thread=False):
-    command = 'zcat %s' if single_thread else 'unpigz -p 4 -c %s'
-    print(command % file_name)
-    p = subprocess.Popen(
-        (command % file_name).split(' '),
-        #shell=True,
-        #bufsize=500000,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
-    )
-    yield p.stdout
-
-
-@args_aware_cacheable
-def count_lines(file_name, single_thread=False, grep=None):
-
-    command = 'zcat %s' if single_thread else 'unpigz -p 6 -c %s'
-    if grep:
-        command += '| grep %s' % grep
-    command += ' | wc -l'
-
-    out = subprocess.Popen(
-        command % file_name,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
-     ).communicate()[0]
-
-    return int(out.partition(b' ')[0])
-
-
 ensembl_args = SourceSubparser(
     'ensembl',
     help='Arguments for raw Ensembl variants loading'
@@ -98,8 +64,8 @@ ensembl_args.add_command(
 
 ensembl_args.add_command(
     '--location',
-    default='/media/ramdisk/head/'
-    #default='ensembl/v88/GRCh37/variation_database/head/'
+    #default='/media/ramdisk/head/'
+    default='ensembl/v88/GRCh37/variation_database/'
 )
 
 
@@ -360,14 +326,10 @@ def get_poly_aaa(transcript, parsed_alleles):
             return poly_aaa
 
 
-def grouper(iterable, chunk_size, fill_value=None):
-    args = [iter(iterable)] * chunk_size
-    return itertools.izip_longest(fillvalue=fill_value, *args)
-
-
 def aggregate_transcripts(transcript_variant_pairs):
+    print('Aggregating transcripts')
     transcripts_by_id = defaultdict(list)
-    for internal_variant_id, transcript, alleles in transcript_variant_pairs:
+    for internal_variant_id, transcript, alleles in tqdm(transcript_variant_pairs):
         transcripts_by_id[internal_variant_id].append((transcript, alleles))
     return transcripts_by_id
 
@@ -408,9 +370,6 @@ def ensembl(args):
     print('Enesmbl variants ready for parsing')
     return variants_by_name
 
-num_workers = 6
-manager = Manager()
-
 
 def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences):
 
@@ -440,7 +399,7 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
         # to restrict to somatic mutations, use: and data[somatic_pos] == '1'
         return not accepted_consequences.isdisjoint(data[consequence_pos].split(','))
 
-    def do_work(in_queue, accepted_pairs, to_check_pairs):
+    def do_work(progress, in_queue, accepted_pairs, to_check_pairs):
 
         transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
 
@@ -481,13 +440,7 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
 
             return seq
 
-        while True:
-            lines = in_queue.get()
-
-            if lines is None:
-                in_queue.task_done()
-                return
-
+        for lines in multiprocess.parser(progress, in_queue):
             for line in lines:
 
                 if line is None:
@@ -560,50 +513,14 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
     accepted_transcript_variant_pairs = manager.list()
     to_check_transcript_variant_pairs = manager.list()
 
-    work = manager.Queue(num_workers)
-
-    pool = []
-    for i in xrange(num_workers):
-        p = Process(target=do_work, args=(work, accepted_transcript_variant_pairs, to_check_transcript_variant_pairs))
-        p.start()
-        pool.append(p)
-
-    chunk_size = 1000000
-    with fast_gzip_read(filename) as f:
-        iterator = grouper(f, chunk_size)
-        for i in tqdm(iterator, total=count_lines(filename) / chunk_size):
-            work.put(i)
-
-    print('Work distributed')
-
-    for i in xrange(num_workers):
-        work.put(None)
-
-    for p in pool:
-        p.join()
-
-    print('Joined all')
-    gc.collect()
+    multiprocess.parse_gz_file(
+        filename,
+        do_work,
+        shared_args=[accepted_transcript_variant_pairs, to_check_transcript_variant_pairs],
+        chunk_size=1000000
+    )
 
     return accepted_transcript_variant_pairs, to_check_transcript_variant_pairs
-
-
-def group_variants_in_chunks(by_name, chunk_size=15000):
-    """Organise variants in groups (not by genes but randomly) for better use of multi-threading"""
-    out = {}
-    c = 0
-    group = []
-    ids = []
-    for v_id, v in by_name.iteritems():
-        c += 1
-        if c % chunk_size == 0:
-            out[','.join(ids)] = group
-            group = []
-            ids = []
-        group.append(v)
-        ids.append(v_id)
-    out[','.join(ids)] = group
-    return out
 
 
 def group_variants_by_snp_id(by_id):
@@ -743,16 +660,12 @@ def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_
             transcript.poly_aaa = poly_aaa
             return True
 
-    def do_work(in_queue, accepted_by_id, to_check_by_id, variants_by_id_out):
+    def do_work(progress, in_queue, accepted_by_id, to_check_by_id, variants_by_id_out):
         # now I have a guarantee that a single ID will come only in this process (!)
-        variant_by_id_buffer = {}
 
-        while True:
-            lines = in_queue.get()
+        for lines in multiprocess.parser(progress, in_queue):
 
-            if lines is None:
-                in_queue.task_done()
-                return
+            variant_by_id_buffer = {}
 
             for line in lines:
 
@@ -805,28 +718,12 @@ def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_
 
     variants_by_id_out = manager.dict()
 
-    work = manager.Queue(num_workers)
-    pool = []
-    for i in xrange(num_workers):
-        p = Process(target=do_work, args=(work, all_accepted_by_id, all_to_check_by_id, variants_by_id_out))
-        p.start()
-        pool.append(p)
-
-    chunk_size = 100000
-    with fast_gzip_read(filename) as f:
-        iterator = grouper(f, chunk_size)
-        for i in tqdm(iterator, total=count_lines(filename) / chunk_size):
-            work.put(i)
-
-    print('Work distributed')
-
-    for i in xrange(num_workers):
-        work.put(None)
-
-    for p in pool:
-        p.join()
-
-    gc.collect()
-    print('Joined all')
+    multiprocess.parse_gz_file(
+        filename,
+        do_work,
+        static_args=[all_accepted_by_id, all_to_check_by_id],
+        shared_args=[variants_by_id_out],
+        chunk_size=100000
+    )
 
     return variants_by_id_out
