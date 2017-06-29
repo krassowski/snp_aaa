@@ -101,10 +101,15 @@ def spidex_get_variant(tb, variant):
         variant.chr_end
     ]
 
-    records = [
-        SpidexRecord(*record)
-        for record in tb.query(*pos)
-    ]
+    try:
+        records = [
+            SpidexRecord(*record)
+            for record in tb.query(*pos)
+        ]
+    except tabix.TabixError:
+        print('TabixError:')
+        print(pos, variant)
+        return []
 
     return records
 
