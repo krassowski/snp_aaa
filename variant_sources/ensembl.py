@@ -459,20 +459,21 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
                 alleles = data[3].split('/')
 
                 ensembl_id = data[2]
+                cds_start = int_or_none(data[6])
+                cds_end = int_or_none(data[7])
 
-                transcript = AffectedTranscript(
-                    cds_start=int_or_none(data[6]),
-                    cds_end=int_or_none(data[7]),
-                    strand=transcript_strand[ensembl_id],
-                    ensembl_id=ensembl_id
-                )
-
-                sequence = get_sequence(transcript.ensembl_id, transcript.cds_start, transcript.cds_end)
+                sequence = get_sequence(ensembl_id, cds_start, cds_end)
 
                 if not sequence:
                     continue
 
-                transcript.sequence = sequence
+                transcript = AffectedTranscript(
+                    cds_start=cds_start,
+                    cds_end=cds_end,
+                    strand=transcript_strand[ensembl_id],
+                    ensembl_id=ensembl_id,
+                    sequence=sequence
+                )
 
                 internal_variant_id = int(data[1])
 
@@ -593,7 +594,7 @@ def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_
                 # TODO: count this
                 # print('Skipping variant from HGMD without complete allele data: %s' % v.snp_id)
             else:
-                raise ParsingError('IncorrectAllele, with dot, not from HGMD')
+                print('ParsingError: IncorrectAllele, with dot, not from HGMD')
             return
 
         raw_alleles = [ref] + alts
