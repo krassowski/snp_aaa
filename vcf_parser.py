@@ -65,7 +65,7 @@ class VariantCallFormatParser(object):
 
         source = variant.source
 
-        if source == 'HGMD-PUBLIC':
+        if source in ('HGMD-PUBLIC', 'PhenCode'):
             # compare:
             # 1	2160487	CD129808	CG	C	.	.	HGMD-PUBLIC_20162;TSA=deletion;E_Phenotype_or_Disease;AA=G
             # 11	64521035	CI076992	G	G.	.	.	HGMD-PUBLIC_20162;TSA=insertion;E_Phenotype_or_Disease
@@ -73,6 +73,9 @@ class VariantCallFormatParser(object):
             # 159993316	27511	2160488	2160488	1	153979486	HGMD_MUTATION	CD129808	1	\N	8	coding_sequence_variant,upstream_gene_variant,regulatory_region_variant	23,29	12	0	\N	\N	\N	\N	418	\N	1
             # 159984197	27504	64521037	64521036	1	153987030	HGMD_MUTATION	CI076992	1	\N	8	coding_sequence_variant,downstream_gene_variant,upstream_gene_variant	23,29	10	0	\N	\N	\N	\N	418	\N	1
             # 159984221	27504	64522271	64522270	1	154081899	HGMD_MUTATION	HI080013	1	\N	8	coding_sequence_variant,upstream_gene_variant,regulatory_region_variant	23,27,29	10	0	\N	\N	\N	\N	418	\N	1
+
+            # 17	7579583	TP53_g.11333_11334ins1	A	A.	.	.	PhenCode_20140430;TSA=sequence_alteration
+            # 160029773	27509	7579585	7579584	-1	154102753	-/PhenCode_variation	TP53_g.11333_11334ins1	1	\N	6	coding_sequence_variant,non_coding_transcript_variant,non_coding_transcript_exon_variant,5_prime_UTR_variant,intron_variant,upstream_gene_variant	23,27	18	0	\N	\N	\N	\N	\N	\N	1
             pos[1] -= 2
 
         return self.get_by_id(source, pos, variant.snp_id)
