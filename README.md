@@ -4,6 +4,10 @@ The repository contains multiple Python modules, useful when analyzing data from
 The pipeline is written in Python 2.7.
 The major part of the analysis revolves around data from [PATACSDB](https://peerj.com/articles/cs-45/) and expands the research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154).
 
+### Licence
+
+The application is Open Source and is licensed under the terms of MIT License.
+
 ### Analyses
 All analyses run on genome assembly GRCh37 and use Ensembl release 88 unless stated otherwise.
 
