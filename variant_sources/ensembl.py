@@ -352,7 +352,7 @@ def ensembl(args):
     transcript_variant_pairs = load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences)
     accepted_transcript_variant_pairs, to_check_transcript_variant_pairs = transcript_variant_pairs
 
-    # those two can run in two separate processes by both have to be single-threaded.
+    # those two can run in two separate processes but both have to be single-threaded.
     accepted_transcripts_by_variant_id = aggregate_transcripts(accepted_transcript_variant_pairs)
     to_check_transcripts_by_variant_id = aggregate_transcripts(to_check_transcript_variant_pairs)
 

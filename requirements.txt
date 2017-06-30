@@ -1,5 +1,4 @@
 pytabix==0.1
-easy_cache
 ggplot==0.6.8
 recordclass==0.4.2
 pyvcf==0.6.8

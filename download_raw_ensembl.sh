@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 mkdir -p ensembl
 mkdir -p ensembl/v88/GRCh37/variation_database/
 

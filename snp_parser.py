@@ -10,7 +10,6 @@ import time
 
 import datetime
 
-from tqdm import tqdm
 from pyfaidx import Fasta
 
 from cache import cacheable
@@ -112,7 +111,6 @@ def perform_analyses(args, variants=None):
 
         try:
             current_reporter(variants)
-
         except Exception:
             print('Analysis %s failed' % reporter_name)
             traceback.print_exc()
@@ -204,8 +202,6 @@ def main(args):
     execute_commands(args)
     execute_subparser_commands(args)
 
-    # TODO: make it into an argument or remove later
-    do_not_dump = False
     variants = None
 
     # 1. Download and parse
@@ -218,12 +214,6 @@ def main(args):
         from variant_sources import VARIANTS_GETTERS
         variants = VARIANTS_GETTERS[method](args)
 
-        #print('Raw variants data downloaded, databases reloaded.')
-        #if do_not_dump:
-        #    from parse_variants import parse_variants_by_gene
-        #    variants = parse_variants_by_gene(raw_variants_by_gene)
-        #else:
-        #    variants_by_gene_parsed.save(raw_variants_by_gene)
         parsed_variants.save(variants)
 
         end = time.time()

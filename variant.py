@@ -109,7 +109,6 @@ class Variant(SlottedObject):
         return alts
 
     def as_hgvs(self):
-        # TODO: what to do for multiple alts?
         for alt in self.alts:
             if self.ref == alt:
                 positions = self.chr_start
