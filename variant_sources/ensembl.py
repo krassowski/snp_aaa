@@ -22,44 +22,27 @@ def show_context(seq, start=OFFSET, end=-OFFSET):
     print(seq[:start] + '>' + seq[start:end] + '<' + seq[end:])
 
 
-def gene_names_from_patacsdb_csv(limit_to=None):
+def transcript_names_from_patacsdb_csv(filename='patacsdb_all.csv'):
     """
-    Load gene names from given csv file. The default file was exported from
-    sysbio.ibb.waw.pl/patacsdb database, from homo sapiens dataset.
+    Load stable ensembl transcript ids from given csv file.
+    The default file was exported from homo sapiens dataset
+    of patacsdb database (sysbio.ibb.waw.pl/patacsdb).
 
-    The gene names are expected to be located at second column in each row.
-    The count of gene names to read can be constrained with use of an optional
-    `limit_to` argument (default None denotes that all gene names
-    from the file should be returned)
+    The identifiers are expected to be located in third column of each row.
     """
-    genes = set()
-    count = 0
-    with open('patacsdb_all.csv', 'r') as f:
+    transcripts = set()
+    with open(filename) as f:
+        header = next(f)     # skip header
+        assert header == '"Protein name","Gene id","Transcript id","Location (%)",Sequence'
         for line in f:
-            if limit_to and count >= limit_to:
-                break
-            count += 1
-            if line:
-                data = [x.strip() for x in line.split(',')]
-                genes.add(data[1])
+            data = line.strip().split(',')
+            transcripts.add(data[2])
 
-    return list(genes)
-
+    return list(transcripts)
 
 ensembl_args = SourceSubparser(
     'ensembl',
     help='Arguments for raw Ensembl variants loading'
-)
-
-ensembl_args.add_command(
-    '--early_selection',
-    choices=['spidex_poly_aaa', 'all_potential_poly_aaa'],
-    default='spidex_poly_aaa',
-    help=(
-        'Loading all variants takes ages. "early_selection" option specifies analysis for which the variants will '
-        'be used so loader can choose which variants should be rejected early. '
-        'Default: spidex. Choices: spidex, all_potential_poly_aaa.'
-    )
 )
 
 ensembl_args.add_command(
@@ -129,19 +112,26 @@ def transcript_stats(value, args):
     print('Other transcripts: %s (%s percent)' % (all-enst-lrg, (all-lrg-enst)/all))
 
 
-"""
 ensembl_args.add_command(
-    '--genes_list',
+    '--transcripts',
     nargs='+',
     type=str,
-    default=gene_names_from_patacsdb_csv(),
+    default='all',
     help=(
-             'list of human genes from which variants should be extracted for use in '
-             'available analyses. By default all human genes from PATACSDB '
-             'will be used. To use all human genes specify "all_human_genes".'
-         )
+        'list of human genes from which variants should be extracted for use in '
+        'available analyses. By default all human transcripts are used. '
+        'To restrict to PATACSDB transcript use "patacsdb".'
+    )
 )
-"""
+
+
+ensembl_args.add_command(
+    '--not_only_poly_a',
+    acction='store_true',
+    help=(
+        'include all variants rather than only those which are poly_a related'
+    )
+)
 
 
 @jit
@@ -209,7 +199,7 @@ def parse_alleles(alleles, transcript):
 
 
 def parse_short_tandem_repeat(allele, alleles):
-    """
+    r"""
     Reference: https://www.ncbi.nlm.nih.gov/variation/hgvs/
 
     So we have such a case:
@@ -342,14 +332,23 @@ def ensembl(args):
     print(args)
 
     path = args.location
-    accepted_consequences = args.consequences
+    only_poly_a = not args.not_only_poly_a
+
+    if args.transcripts == 'all':
+        only_transcripts = None
+    elif args.transcripts == 'patacsdb':
+        only_transcripts = transcript_names_from_patacsdb_csv()
+    else:
+        only_transcripts = args.transcripts
 
     transcript_strand = load_transcript_strands(path)
     seq_region = load_chromosome_and_region_names(path)
     sources = load_variation_sources(path)
 
     # multiple threads:
-    transcript_variant_pairs = load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences)
+    transcript_variant_pairs = load_poly_a_transcript_variant_pairs(
+        path, transcript_strand, args.consequences, only_transcripts, only_poly_a
+    )
     accepted_transcript_variant_pairs, to_check_transcript_variant_pairs = transcript_variant_pairs
 
     # those two can run in two separate processes but both have to be single-threaded.
@@ -360,7 +359,8 @@ def ensembl(args):
     variants_by_id = load_variants_details(
         path,
         seq_region, sources,
-        accepted_transcripts_by_variant_id, to_check_transcripts_by_variant_id
+        accepted_transcripts_by_variant_id, to_check_transcripts_by_variant_id,
+        only_poly_a
     )
 
     print('Accepted:', len(variants_by_id))
@@ -371,7 +371,7 @@ def ensembl(args):
     return variants_by_name
 
 
-def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences):
+def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences, limit_to_transcripts, only_poly_a=True):
 
     filename = path + 'transcript_variation.txt.gz'
 
@@ -404,7 +404,7 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
         transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
 
         @jit
-        def get_sequence(transcript, raw_start, raw_end):
+        def get_any_sequence(transcript, raw_start, raw_end):
 
             if not (raw_start and raw_end):
                 # print('No sequence coordinates for %s transcript' % transcript.ensembl_id)
@@ -439,6 +439,16 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
                 return
 
             return seq
+
+        if limit_to_transcripts:
+            # when limiting transcripts number significantly, additional overhead of one function is not a problem
+            @jit
+            def get_sequence(transcript, raw_start, raw_end):
+                if transcript in limit_to_transcripts:
+                    return get_any_sequence(transcript, raw_start, raw_end)
+        else:
+            # otherwise it's better to limit overhead as much as possible
+            get_sequence = get_any_sequence
 
         for lines in multiprocess.parser(progress, in_queue):
             for line in lines:
@@ -507,7 +517,7 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
 
                 poly_aaa = get_poly_aaa(transcript, alleles)
 
-                if poly_aaa:
+                if poly_aaa or not only_poly_a:
                     transcript.poly_aaa = poly_aaa
                     accepted_pairs.append((internal_variant_id, transcript, alleles))
 
@@ -549,7 +559,7 @@ def group_variants_by_snp_id(by_id):
     return by_name
 
 
-def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_check_by_id):
+def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_check_by_id, only_poly_a):
     """
     feature_table = [
         'variation_feature_id',
@@ -573,7 +583,7 @@ def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_
     """
     filename = path + 'variation_feature.txt.gz'
 
-    def test_poly_a_and_amend_transcript_if_present(transcript, variant, alleles):
+    def test_poly_a_and_amend_transcript_if_present(transcript, variant, alleles, only_poly_a=True):
         try:
             pos, ref, alts = get_alt_alleles(variant, transcript.strand, convert_to_strand=False)
         except ParsingError as e:
@@ -657,7 +667,7 @@ def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_
 
         poly_aaa = get_poly_aaa(transcript, alleles)
 
-        if poly_aaa:
+        if poly_aaa or not only_poly_a:
             transcript.poly_aaa = poly_aaa
             return True
 
@@ -700,7 +710,7 @@ def load_variants_details(path, seq_region, sources, all_accepted_by_id, all_to_
                 if in_to_check:
                     newly_accepted_transcripts = []
                     for transcript, alleles in to_check_by_id[variant_id]:
-                        accepted = test_poly_a_and_amend_transcript_if_present(transcript, variant, alleles)
+                        accepted = test_poly_a_and_amend_transcript_if_present(transcript, variant, alleles, only_poly_a)
                         if accepted:
                             newly_accepted_transcripts.append(transcript)
 

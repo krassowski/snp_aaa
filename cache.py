@@ -1,7 +1,6 @@
 from __future__ import print_function
-import cPickle as pickle
+import pickle
 import os
-import sys
 
 
 class CachingError(Exception):
@@ -86,7 +85,7 @@ class args_aware_cacheable(cacheable):
 
     def file_name(self, *args, **kwargs):
         args_repr = ', '.join(map(self.safe_name, args))
-        kwargs_repr = ', '.join('%s=%s' % (self.safe_name(k), self.safe_name(v)) for k, v in kwargs.iteritems())
+        kwargs_repr = ', '.join('%s=%s' % (self.safe_name(k), self.safe_name(v)) for k, v in kwargs.items())
         return '%s(%s; %s)' % (self.cache_name, args_repr, kwargs_repr)
 
     def __call__(self, *args, **kwargs):

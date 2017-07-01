@@ -73,7 +73,7 @@ def gtex_over_api(variants_by_gene):
                 # print(repr(decoded))
                 for datum in decoded:
                     for transcript in variant.affected_transcripts:
-                        for alt, aaa_data in transcript.poly_aaa.iteritems():
+                        for alt, aaa_data in transcript.poly_aaa.items():
                             report_chunk = (
                                 variant.snp_id,
                                 datum['tissue'], datum['value'], datum['gene'],
@@ -155,7 +155,7 @@ def poly_aaa_vs_expression(variants_by_gene):
 
             transcript.expression = {}
 
-            for alt, aaa_data in transcript.poly_aaa.iteritems():
+            for alt, aaa_data in transcript.poly_aaa.items():
 
                 expression_data = expression_data_by_alt.get(alt, None)
 
@@ -238,18 +238,18 @@ def poly_aaa_vs_expression(variants_by_gene):
 
         """
         gtex_report += [(
-            sum('up' in v.expression.itervalues() for v in poly_a_related_variants),
-            sum('down' in v.expression.itervalues() for v in poly_a_related_variants),
+            sum('up' in v.expression.values() for v in poly_a_related_variants),
+            sum('down' in v.expression.values() for v in poly_a_related_variants),
             sum(
-                sum('up' == expr for expr in v.expression.itervalues())
+                sum('up' == expr for expr in v.expression.values())
                 for v in poly_a_related_variants
             ),
             sum(
-                sum('down' == expr for expr in v.expression.itervalues())
+                sum('down' == expr for expr in v.expression.values())
                 for v in poly_a_related_variants
             ),
-            sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.itervalues()),
-            sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.itervalues())
+            sum(data.increased for v in poly_a_related_variants for data in v.poly_aaa.values()),
+            sum(data.decreased for v in poly_a_related_variants for data in v.poly_aaa.values())
         )]
         """
 

@@ -1,8 +1,22 @@
 # Analysis of SNPs affecting poly(A) tracks and their impact on protein expression in Human
 
-The repository contains multiple Python modules, useful when analyzing data from Ensembl, Cosmic, NCBI and other services while searching for information about effect of particular SNPs.
-The pipeline is written in Python 2.7.
-The major part of the analysis revolves around data from [PATACSDB](https://peerj.com/articles/cs-45/) and expands the research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154).
+The repository contains multiple Python modules,
+useful when analyzing data from Ensembl, Cosmic, NCBI and other services
+while searching for information about an effect of a particular SNP.
+
+
+The pipeline uses Python 3.5 and bash scripting. The scripts are optimized for work in multiprocessing.
+
+
+The analyses expand research published in Science Advances: ["Translational control by lysine-encoding A-rich sequences"](http://advances.sciencemag.org/content/1/6/e1500154).
+
+
+The pipeline can run on either:
+
+- all transcripts available in Ensembl, or
+- user selected transcripts, or
+- on predefined transcripts from [PATACSDB](https://peerj.com/articles/cs-45/) which are known to include poly(A) tracks.
+
 
 ### Licence
 
@@ -28,7 +42,7 @@ Full genome:
     Data sources:
         - Raw Ensembl MySQL import data files (genes and variants)
 ```bash
-./snp_parser.py --variants ensembl --report poly_aaa
+./snp_parser.py --variants ensembl --report summarize_poly_aaa_variants
 ```
 
 Only genes known to have poly_aaa:
@@ -36,7 +50,7 @@ Only genes known to have poly_aaa:
         - Ensembl's biomart (variants from dbSNP, Cosmic and others),
         - PATACSDB (gene names)
 ```bash
-./snp_parser.py --variants biomart --report poly_aaa
+./snp_parser.py --report summarize_poly_aaa_variants --variants ensembl source-options ensembl --transcripts patacsdb
 ```
 
 
@@ -219,32 +233,33 @@ Some of the VCF files cover more than one source of mutations i.e.:
 * NCBI VCF has both dbSNP and ClinVar variants,
 * Ensembl covers ESP and HGMD-PUBLIC
 
-#### Raw Ensembl
+#### Ensembl variants
 
 * All variants with consequences (so_term): coding_sequence_variant and all of its subterms.
 
-Variants will be filtered at loading to reduce the tremendous quantity;
-An option `--early_selection` defines criteria for filtering:
+Variants will be filtered at loading to include only such variants which might affect or lay nearby a poly(A) sequence.
+You can override this filtering, specifying `--not_only_poly_a`:
 
-* `all_potential_poly_aaa` will load all variants which might affect or lay nearby poly(A) sequence
-* `spidex_poly_aaa` will load only such poly(A) related variants which are single 1-1 substitutions, like variants analysed in SPIDEX database.
 
 ```bash
-./snp_parser.py --variants ensembl ensembl --early_selection all_potential_poly_aaa
+./snp_parser.py --variants ensembl source-options ensembl --not_only_poly_a
 ```
 
 
 Consequences can be adjusted using `--consequences` option:
 ```bash
-./snp_parser.py --variants ensembl ensembl --consequences stop_lost,stop_gained
+./snp_parser.py --variants ensembl source-options ensembl --consequences stop_lost,stop_gained
 ```
 
-#### Ensembl Biomart
+For some basic tests you can select only variants from transcripts known to have Poly(A), from [PATACSDB](http://sysbio.ibb.waw.pl/patacsdb) (Homo sapiens dataset),
+```bash
+./snp_parser.py --variants ensembl source-options ensembl --transcripts patacsdb
+```
 
-* All variants with consequences (so_term): coding_sequence_variant.
-* Only SNPs from genes present in [PATACSDB](http://sysbio.ibb.waw.pl/patacsdb) (Homo sapiens dataset),
-so presence of at least one poly(A) track was guaranteed.
-
+Alternatively you can provide a space-separated list of transcripts you wish to test (please, use Ensembl stable identifiers):
+```bash
+./snp_parser.py --variants ensembl source-options ensembl --transcripts ENST00000513376 ENST00000589975
+```
 
 #### Future development ideas
 
@@ -288,6 +303,9 @@ conda install pigz
 ~/anaconda2/bin/python -u -O snp_parser.py --report analysis_name | tee analysis_name.version.log
 ```
 
+Note that `--reports` option can accept multiple values at once; therefore it has to be the last one in the command (so the parser can consume all following words as values of `--reports`)
+
+
 ### Speeding up
 
 Variants parsing is way much faster when some frequently used files are placed in ramdisk:
@@ -313,3 +331,5 @@ in the download script.
 ## About
 
 The code in the repository as available before 2016-06-30 was written during 60-hours internship in Institute of Biochemistry and Biophysics Polish Academy of Sciences, under supervision and guidance of Paweł Szczęsny.
+
+The following versions were developed during Bachelor Thesis workshops.

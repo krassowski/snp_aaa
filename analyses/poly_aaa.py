@@ -27,7 +27,7 @@ def summarize_poly_aaa_variants(variants_by_gene):
                     transcript.cds_start,
                     transcript.cds_end,
                 ]))
-                for alt, aaa_data in transcript.poly_aaa.iteritems()
+                for alt, aaa_data in transcript.poly_aaa.items()
             ]
 
     report(

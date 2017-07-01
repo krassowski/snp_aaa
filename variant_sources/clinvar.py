@@ -1,10 +1,6 @@
-import json
 from collections import defaultdict
 
-from tqdm import trange
-
 from commands import SourceSubparser
-from cache import cacheable
 from variant import Variant
 from variant_sources import variants_getter
 

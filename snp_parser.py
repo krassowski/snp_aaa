@@ -1,7 +1,5 @@
-#!/usr/bin/env python -u
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-from __future__ import print_function
 
 import sys
 import traceback
@@ -86,13 +84,13 @@ def select_poly_a_related_variants(variants):
         if any([
             data.has or data.will_have
             for affected_transcript in variant.affected_transcripts
-            for data in affected_transcript.poly_aaa.itervalues()
+            for data in affected_transcript.poly_aaa.values()
         ])
     ]
 
 
 def all_poly_a_variants(variants):
-    poly_a_related_variants = select_poly_a_related_variants(variants.itervalues())
+    poly_a_related_variants = select_poly_a_related_variants(variants.values())
 
     for variant in poly_a_related_variants:
         yield variant
@@ -117,11 +115,11 @@ def perform_analyses(args, variants=None):
 
 
 def create_arg_parser():
-    from commands import ArgumentParserPlus
+    from argparse import ArgumentParser
     from analyses import REPORTERS
     from variant_sources import VARIANTS_GETTERS
 
-    parser = ArgumentParserPlus(description=(
+    parser = ArgumentParser(description=(
         'Retrieve all data about variants from genes belonging to a predefined '
         'or user-chosen list of genes (see --genes_list) [including list of all '
         'human genes] and perform one or multiple of available analyses '
@@ -135,7 +133,7 @@ def create_arg_parser():
         nargs='+',
         choices=REPORTERS.keys(),
         default=[],
-        help='Analyses to be performed; one or more from: ' + ', '.join(REPORTERS.iterkeys()),
+        help='Analyses to be performed; one or more from: ' + ', '.join(REPORTERS.keys()),
         metavar=''
     )
     parser.add_argument(
@@ -161,11 +159,6 @@ def create_arg_parser():
                 )
                 for name, func in VARIANTS_GETTERS.items()
             ])
-    )
-    parser.add_argument(
-        '--profile',
-        action='store_true',
-        help='For debugging only.'
     )
     append_commands(parser)
     append_subparsers(parser)
@@ -230,17 +223,12 @@ def main(args):
     else:
         print('No analyses specified.')
 
-
 if __name__ == '__main__':
 
     parsed_args = parse_args(sys.argv)
     VERBOSITY_LEVEL = parsed_args.verbose
 
-    if parsed_args.profile:
-        import profile
-        profile.run('main(parsed_args)')
-    else:
-        main(parsed_args)
+    main(parsed_args)
 
     def say(text):
         # libttspico-utils

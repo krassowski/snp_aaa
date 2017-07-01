@@ -8,7 +8,7 @@ class SlottedObject(object):
     __volatile_attributes__ = []
 
     def __init__(self, **kwargs):
-        for key, value in kwargs.iteritems():
+        for key, value in kwargs.items():
             setattr(self, key, value)
 
     def __eq__(self, other):
@@ -142,7 +142,7 @@ class Variant(SlottedObject):
 
         assert transcript in self.affected_transcripts
 
-        for alt in transcript.poly_aaa.iterkeys():
+        for alt in transcript.poly_aaa.keys():
 
             pos = int(self.chr_start)
             ref = self.ref

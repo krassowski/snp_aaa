@@ -4,6 +4,6 @@ VARIANTS_GETTERS = {}
 
 variants_getter = decorator_maker(VARIANTS_GETTERS, 'variants loader')
 
-import pkdb
-import clinvar
-import ensembl
+from . import pkdb
+from . import clinvar
+from . import ensembl

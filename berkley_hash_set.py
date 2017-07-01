@@ -1,5 +1,5 @@
 import os
-import bsddb
+import bsddb3 as bsddb
 
 
 class SetWithCallback(set):
@@ -144,7 +144,7 @@ class BerkleyHashSet(BerkleyHash):
         self.db[key] = bytes('|'.join(items))
 
     def items(self):
-        for key, value in self.db.iteritems():
+        for key, value in self.db.items():
             yield (
                 key,
                 SetWithCallback(

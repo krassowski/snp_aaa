@@ -20,7 +20,8 @@ def fast_gzip_read(file_name, single_thread=False):
         #shell=True,
         #bufsize=500000,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT
+        stderr=subprocess.STDOUT,
+        universal_newlines=True
     )
     yield p.stdout
 
@@ -80,7 +81,7 @@ def parse_gz_file(filename, target, static_args=None, shared_args=None, chunk_si
         shared_args = []
 
     pool = []
-    for _ in xrange(workers):
+    for _ in range(workers):
         process = Process(
             target=target,
             args=[progress_updates, in_queue] + static_args + shared_args,
@@ -97,7 +98,7 @@ def parse_gz_file(filename, target, static_args=None, shared_args=None, chunk_si
 
     print('Work distributed')
 
-    for _ in xrange(workers):
+    for _ in range(workers):
         in_queue.put(None)
 
     for p in pool:
@@ -114,7 +115,7 @@ def parse_gz_file(filename, target, static_args=None, shared_args=None, chunk_si
 
 def grouper(iterable, chunk_size, fill_value=None):
     args = [iter(iterable)] * chunk_size
-    return itertools.izip_longest(fillvalue=fill_value, *args)
+    return itertools.zip_longest(fillvalue=fill_value, *args)
 
 
 manager = Manager()

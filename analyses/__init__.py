@@ -65,9 +65,9 @@ def decorator_maker(storage, decorator_name):
 reporter = decorator_maker(REPORTERS, 'analysis')
 
 
-import zcrb1
-import cosmic
-import spidex
-import gtex
-import poly_aaa
-import gtex_vs_spidex
+from . import zcrb1
+from . import cosmic
+from . import spidex
+from . import gtex
+from . import poly_aaa
+from . import gtex_vs_spidex

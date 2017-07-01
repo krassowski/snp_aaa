@@ -86,7 +86,7 @@ def draw_plot(plot, format='svg', size=(19.2, 12)):
 def prepare_data_frame(data_dict, melt=True):
     df = pd.DataFrame(OrderedDict(
         (key, pd.Series(value))
-        for key, value in data_dict.iteritems()
+        for key, value in data_dict.items()
     ))
     if melt:
         df = pd.melt(df)
@@ -260,7 +260,7 @@ def spidex_from_list(variants_list):
             if not transcript.poly_aaa:
                 continue
 
-            for alt, aaa_data in transcript.poly_aaa.iteritems():
+            for alt, aaa_data in transcript.poly_aaa.items():
 
                 if alt in to_skip:
                     continue
@@ -582,7 +582,7 @@ def all_variants_vs_spidex(variants_by_gene):
 
     all_variants = []
 
-    for gene_variants in variants_by_gene.itervalues():
+    for gene_variants in variants_by_gene.values():
         all_variants.extend(gene_variants)
 
     # plot_aaa_vs_spidex(all_variants)
@@ -637,7 +637,7 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
 
     groups_zscores = {
         name: [point['dpsi_zscore'] for point in group]
-        for name, group in variants_groups.iteritems()
+        for name, group in variants_groups.items()
     }
 
     #groups_zscores['all_in_spidex'] = full_spidex_zscore_dist
@@ -651,7 +651,7 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
 
     groups_new_aaa_lengths = defaultdict(list)
 
-    for name, group in variants_groups.iteritems():
+    for name, group in variants_groups.items():
         for point in group:
             new_aaa_length = point['new_aaa_length']
             groups_new_aaa_lengths[new_aaa_length].append(point['dpsi_zscore'])
@@ -668,13 +668,13 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
         )
         z_scores_1 = [
             zscore
-            for name, group in groups_new_aaa_lengths.iteritems()
+            for name, group in groups_new_aaa_lengths.items()
             for zscore in group
             if name <= new_aaa_length
         ]
         z_scores_2 = [
             zscore
-            for name, group in groups_new_aaa_lengths.iteritems()
+            for name, group in groups_new_aaa_lengths.items()
             for zscore in group
             if name > new_aaa_length
         ]

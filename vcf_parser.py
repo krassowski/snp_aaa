@@ -27,10 +27,10 @@ class VariantCallFormatParser(object):
         """
         self.vcf_sources = vcf_sources
         self.readers = {}
-        for source, data in vcf_sources.iteritems():
+        for source, data in vcf_sources.items():
             if not data['is_alias']:
-                self.readers[source] = vcf.Reader(filename=data['path'])
-        for source, data in vcf_sources.iteritems():
+                self.readers[source] = vcf.Reader(filename=data['path'], compressed=True)
+        for source, data in vcf_sources.items():
             if data['is_alias']:
                 target = data['aliased_vcf']
                 vcf_sources[source] = vcf_sources[target]
