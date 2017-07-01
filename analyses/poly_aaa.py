@@ -1,5 +1,5 @@
 from analyses import report, reporter
-from snp_parser import all_poly_a_variants
+from helpers import all_poly_a_variants
 
 
 @reporter
@@ -17,7 +17,7 @@ def summarize_poly_aaa_variants(variants_by_gene):
             variant_aaa_report += [
                 '\t'.join(map(str, [
                     variant.snp_id,
-                    None,#variant.ensembl_gene_stable_id,
+                    None,#variant.ensembl_gene_stable_id    # TODO
                     aaa_data.increased,
                     aaa_data.decreased,
                     aaa_data.change,

@@ -11,10 +11,10 @@ from commands import SourceSubparser
 from multiprocess import fast_gzip_read, count_lines, manager
 from parse_variants import OFFSET, complement
 from poly_a import poly_a
-from snp_parser import jit
-from snp_parser import vcf_mutation_sources, TRANSCRIPT_DB_PATH
+from jit import jit
+from settings import TRANSCRIPT_DB_PATH, vcf_mutation_sources
 from variant import Variant, AffectedTranscript, PolyAAAData
-from variant_sources import variants_getter
+from variant_sources import variants_source
 from vcf_parser import VariantCallFormatParser, ParsingError
 
 
@@ -47,7 +47,6 @@ ensembl_args = SourceSubparser(
 
 ensembl_args.add_command(
     '--location',
-    #default='/media/ramdisk/head/'
     default='ensembl/v88/GRCh37/variation_database/'
 )
 
@@ -127,7 +126,7 @@ ensembl_args.add_command(
 
 ensembl_args.add_command(
     '--not_only_poly_a',
-    acction='store_true',
+    action='store_true',
     help=(
         'include all variants rather than only those which are poly_a related'
     )
@@ -324,7 +323,7 @@ def aggregate_transcripts(transcript_variant_pairs):
     return transcripts_by_id
 
 
-@variants_getter
+@variants_source
 def ensembl(args):
     """Load variants from Ensembl raw database files.
     Only variants belonging to coding sequences will be loaded.
@@ -371,6 +370,21 @@ def ensembl(args):
     return variants_by_name
 
 
+@jit
+def take_transcript_id_without_version(full_id):
+    """Returns transcript id without version and everything which is after version separating comma.
+
+    Example:
+        Input: ESNT_0001.4
+        Output: ESNT_0001
+
+        Input: ESNT_0002.2.some_annotation
+        Output: ESNT_0002
+
+    """
+    return full_id.split('.')[0]
+
+
 def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_consequences, limit_to_transcripts, only_poly_a=True):
 
     filename = path + 'transcript_variation.txt.gz'
@@ -401,7 +415,7 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
 
     def do_work(progress, in_queue, accepted_pairs, to_check_pairs):
 
-        transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
+        transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=take_transcript_id_without_version)
 
         @jit
         def get_any_sequence(transcript, raw_start, raw_end):

@@ -8,9 +8,9 @@ from tqdm import tqdm
 
 from analyses import report, reporter
 from scipy.stats import ks_2samp
-from snp_parser import jit
-from snp_parser import all_poly_a_variants
-from snp_parser import SPIDEX_LOCATION
+from jit import jit
+from helpers import all_poly_a_variants
+from settings import SPIDEX_LOCATION
 from cache import cacheable
 import tabix
 from recordclass import recordclass
@@ -56,7 +56,7 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
         print(query)
 
 
-def draw_plot(plot, format='svg', size=(19.2, 12)):
+def draw_plot(plot, extension='svg', size=(19.2, 12)):
 
     if DRAW_PLOTS:
         from matplotlib import axes
@@ -69,16 +69,16 @@ def draw_plot(plot, format='svg', size=(19.2, 12)):
         ]
 
         if type(plot) is ggplot:
-            ggsave(filename=plot.title + '.' + format, plot=plot, width=size[0], height=size[1])
+            ggsave(filename=plot.title + '.' + extension, plot=plot, width=size[0], height=size[1])
             #plot.draw().waitforbuttonpress()
         elif type(plot) in seaborns:
             #plot.fig.show()
             plot.fig.set_size_inches(*size)
-            plot.fig.savefig(plot.ax.title.get_text() + '.' + format)
+            plot.fig.savefig(plot.ax.title.get_text() + '.' + extension)
         elif type(plot) is axes.Subplot:
             #plot.figure.show()
             plot.figure.set_size_inches(*size)
-            plot.figure.savefig(plot.title.get_text() + '.' + format)
+            plot.figure.savefig(plot.title.get_text() + '.' + extension)
         else:
             raise Exception('Unrecognized plot type: %s' % type(plot))
 

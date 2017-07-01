@@ -14,7 +14,6 @@ from cache import args_aware_cacheable
 @contextmanager
 def fast_gzip_read(file_name, single_thread=False):
     command = 'zcat %s' if single_thread else 'unpigz -p 4 -c %s'
-    print(command % file_name)
     p = subprocess.Popen(
         (command % file_name).split(' '),
         #shell=True,

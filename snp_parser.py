@@ -1,111 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import sys
 import traceback
+from argparse import ArgumentParser
 
-import time
-
-import datetime
-
-from pyfaidx import Fasta
-
+from analyses import analyses
 from cache import cacheable
-from commands import execute_commands, execute_subparser_commands
 from commands import append_commands
 from commands import append_subparsers
-
-VERBOSITY_LEVEL = 0
-
-GRCH_VERSION = 'GRCh37'
-GRCH_SUBVERSION = '13'
-ENSEMBL_VERSION = '88'
-COSMIC_VERSION = '81'
-DBSNP_VERSION = '150'
-SPIDEX_LOCATION = 'spidex_public_noncommercial_v1.0/spidex_public_noncommercial_v1_0.tab.gz'
-TRANSCRIPT_DB_PATH = 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.' + GRCH_VERSION + '.cds.all.fa'
-#TRANSCRIPT_DB_PATH = '/media/ramdisk/Homo_sapiens.GRCh37.cds.all.fa'
+from commands import execute_commands, execute_subparser_commands
+from helpers import execution_time
+from variant_sources import sources
 
 
-transcripts_db = Fasta(TRANSCRIPT_DB_PATH, key_function=lambda x: x.split('.')[0])
-
-
-vcf_mutation_sources = {
-    'COSMIC': {
-        'is_alias': False,
-        'path': 'cosmic/v' + COSMIC_VERSION + '/CosmicCodingMuts.vcf.gz.bgz',
-        #'path': '/media/ramdisk/CosmicCodingMuts.vcf.gz.bgz',
-        'given_as_positive_strand_only': True
-    },
-    'dbSNP': {
-        'is_alias': False,
-        'path': 'ncbi/dbsnp_' + DBSNP_VERSION + '-' + GRCH_VERSION.lower() + 'p' +
-        GRCH_SUBVERSION + '/00-All.vcf.gz',
-        'given_as_positive_strand_only': True
-    },
-    'ensembl': {
-        'is_alias': False,
-        'path': 'ensembl/v' + ENSEMBL_VERSION + '/Homo_sapiens.vcf.gz',
-        #'path': '/media/ramdisk/Homo_sapiens.vcf.gz',
-        'given_as_positive_strand_only': True
-    },
-    'ClinVar': {
-        'is_alias': True,
-        'aliased_vcf': 'dbSNP'
-    },
-    'ESP': {
-        'is_alias': True,
-        'aliased_vcf': 'ensembl'
-    },
-    'HGMD-PUBLIC': {
-        'is_alias': True,
-        'aliased_vcf': 'ensembl'
-    },
-    'PhenCode': {
-        'is_alias': True,
-        'aliased_vcf': 'ensembl'
-    },
-}
-
-
-try:
-    from numba import jit
-except ImportError:
-    print('Install numba to speed up execution')
-    jit = lambda x: x
-
-
-def select_poly_a_related_variants(variants):
-    """Return list of variants occurring in a poly(A) track and variants which will create poly(A) track."""
-
-    return [
-        variant
-        for variant in variants
-        if any([
-            data.has or data.will_have
-            for affected_transcript in variant.affected_transcripts
-            for data in affected_transcript.poly_aaa.values()
-        ])
-    ]
-
-
-def all_poly_a_variants(variants):
-    poly_a_related_variants = select_poly_a_related_variants(variants.values())
-
-    for variant in poly_a_related_variants:
-        yield variant
+@cacheable
+def variants_cache(variants):
+    return variants
 
 
 def perform_analyses(args, variants=None):
     """The main workflow happens here."""
 
     if not args.no_variants:
-        variants = parsed_variants.load()
-
-    from analyses import REPORTERS
+        variants = variants_cache.load()
 
     for reporter_name in args.report:
-        current_reporter = REPORTERS[reporter_name]
+        current_reporter = analyses[reporter_name]
 
         try:
             current_reporter(variants)
@@ -115,9 +35,6 @@ def perform_analyses(args, variants=None):
 
 
 def create_arg_parser():
-    from argparse import ArgumentParser
-    from analyses import REPORTERS
-    from variant_sources import VARIANTS_GETTERS
 
     parser = ArgumentParser(description=(
         'Retrieve all data about variants from genes belonging to a predefined '
@@ -131,15 +48,10 @@ def create_arg_parser():
     parser.add_argument(
         '--report',
         nargs='+',
-        choices=REPORTERS.keys(),
+        choices=analyses.keys(),
         default=[],
-        help='Analyses to be performed; one or more from: ' + ', '.join(REPORTERS.keys()),
+        help='Analyses to be performed; one or more from: ' + ', '.join(analyses.keys()),
         metavar=''
-    )
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='increase output verbosity'
     )
     parser.add_argument(
         '-n',
@@ -149,45 +61,22 @@ def create_arg_parser():
     )
     parser.add_argument(
         '-v', '--variants',
-        choices=VARIANTS_GETTERS.keys(),
+        choices=sources.keys(),
         default=None,
-        help='How should the variants be retrieved? Choices are: ' +
+        help='How variants should be retrieved? Choices are: ' +
              ', '.join([
-                '{getter_name} ({description})'.format(
-                    getter_name=name,
+                '{source_name} ({description})'.format(
+                    source_name=name,
                     description=func.__doc__
                 )
-                for name, func in VARIANTS_GETTERS.items()
-            ])
+                for name, func in sources.items()
+                ]
+             )
     )
     append_commands(parser)
     append_subparsers(parser)
 
     return parser
-
-
-def parse_args(system_arguments):
-    """Create parse, subcommands and parse given arguments list.
-
-    Arguments list should be given in format of sys.argv."""
-    subcommands = ['show', 'profile']
-    parser = create_arg_parser()
-
-    raw_args_without_filename = system_arguments[1:]
-
-    raw_args = [
-        '--' + a
-        if a in subcommands
-        else a
-        for a in raw_args_without_filename
-    ]
-
-    return parser.parse_args(raw_args)
-
-
-@cacheable
-def parsed_variants(variants):
-    return variants
 
 
 def main(args):
@@ -197,27 +86,20 @@ def main(args):
 
     variants = None
 
-    # 1. Download and parse
+    # Download and parse
     if args.variants:
 
-        start = time.time()
+        with execution_time() as time:
+            method = args.variants
 
-        method = args.variants
+            variants = sources[method](args)
 
-        from variant_sources import VARIANTS_GETTERS
-        variants = VARIANTS_GETTERS[method](args)
+            variants_cache.save(variants)
 
-        parsed_variants.save(variants)
-
-        end = time.time()
-        print(
-            'Variants handling finished after %s'
-            %
-            datetime.timedelta(seconds=end-start)
-        )
+        print('Variants handling finished after %s' % time.elapsed)
         print('Variants data parsed and ready to use.')
 
-    # 3. Perform chosen analyses and generate reports
+    # Perform chosen analyses and generate reports
     if args.report:
         perform_analyses(args, variants)
     else:
@@ -225,16 +107,8 @@ def main(args):
 
 if __name__ == '__main__':
 
-    parsed_args = parse_args(sys.argv)
-    VERBOSITY_LEVEL = parsed_args.verbose
+    parser = create_arg_parser()
+    parsed_args = parser.parse_args()
 
     main(parsed_args)
 
-    def say(text):
-        # libttspico-utils
-        import os
-        os.system('pico2wave -w=/tmp/x.wav "%s"' % text)
-        os.system('aplay /tmp/x.wav')
-        os.system('rm /tmp/x.wav')
-
-    say('Computations have just finished!')

@@ -1,7 +1,7 @@
 from collections import defaultdict
 from cna_by_transcript import CompleteCNA
-from snp_parser import select_poly_a_related_variants
-from snp_parser import COSMIC_VERSION
+from helpers import select_poly_a_related_variants
+from settings import COSMIC_VERSION
 from analyses import report, reporter
 
 

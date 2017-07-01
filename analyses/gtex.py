@@ -2,8 +2,7 @@ import sys
 
 from analyses import report, reporter
 from commands import AnalysisSubparser
-from snp_parser import select_poly_a_related_variants
-from snp_parser import all_poly_a_variants
+from helpers import select_poly_a_related_variants, all_poly_a_variants
 from expression_database import ExpressionDatabase, ExpressedGenes, import_expressed_genes
 from expression_database import import_expression_data
 
@@ -160,7 +159,6 @@ def poly_aaa_vs_expression(variants_by_gene):
                 expression_data = expression_data_by_alt.get(alt, None)
 
                 if not expression_data:
-                    #print('No expression for', variant.snp_id, 'with alt:', alt)
                     continue
                 else:
                     print('Expression data for', variant.snp_id, 'found:', expression_data)

@@ -1,8 +1,8 @@
-from analyses import decorator_maker
+from helpers import decorator_maker
 
-VARIANTS_GETTERS = {}
+sources = {}
 
-variants_getter = decorator_maker(VARIANTS_GETTERS, 'variants loader')
+variants_source = decorator_maker(sources, 'variants loader')
 
 from . import pkdb
 from . import clinvar

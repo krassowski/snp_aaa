@@ -1,7 +1,7 @@
 import requests
 import sys
 from collections import defaultdict
-from variant_sources import variants_getter
+from variant_sources import variants_source
 
 from cache import cacheable
 from parse_variants import decode_hgvs_code
@@ -103,7 +103,7 @@ def get_raw_table():
     return raw_rows
 
 
-@variants_getter
+@variants_source
 def polycystic_kidney_disease_variants(args, exonic_only=True):
     """Fetch variants associated with PKD1 from PKDB."""
     variants_by_genes = defaultdict(list)

@@ -78,7 +78,8 @@ class cacheable(object):
 
 class args_aware_cacheable(cacheable):
 
-    def safe_name(self, name):
+    @staticmethod
+    def safe_name(name):
         import string
         safe_chars = "_. %s%s" % (string.ascii_letters, string.digits)
         return ''.join([(c if c in safe_chars else '_')for c in str(name)])

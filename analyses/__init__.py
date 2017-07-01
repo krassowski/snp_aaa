@@ -1,11 +1,7 @@
 import os
 from collections import OrderedDict
 
-import time
-
-import datetime
-
-from snp_parser import VERBOSITY_LEVEL
+from helpers import decorator_maker
 
 
 def report(name, data, column_names=()):
@@ -18,8 +14,7 @@ def report(name, data, column_names=()):
     directory = 'reports'
 
     if not data:
-        if VERBOSITY_LEVEL:
-            print('Nothing to report for %s' % name)
+        print('Nothing to report for %s' % name)
         return
 
     if not os.path.exists(directory):
@@ -36,33 +31,9 @@ def report(name, data, column_names=()):
     print('Created report "%s" with %s entries' % (name, len(data)))
 
 
-REPORTERS = OrderedDict()
+analyses = OrderedDict()
 
-
-def decorator_maker(storage, decorator_name):
-
-    def decorator(func):
-        name = func.__name__
-
-        def informative_reporter(*args, **kwargs):
-            print('Executing %s: %s...' % (decorator_name, name))
-            start = time.time()
-            result = func(*args, **kwargs)
-            end = time.time()
-            print(
-                'Execution of %s %s finished after %s'
-                %
-                (name, decorator_name, datetime.timedelta(seconds=end-start))
-            )
-            return result
-
-        storage[name] = informative_reporter
-        return informative_reporter
-
-    return decorator
-
-
-reporter = decorator_maker(REPORTERS, 'analysis')
+reporter = decorator_maker(analyses, 'analysis')
 
 
 from . import zcrb1

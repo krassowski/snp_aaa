@@ -2,7 +2,7 @@ import tabix
 
 from analyses import reporter
 from analyses.spidex import spidex_get_variant, choose_record
-from snp_parser import SPIDEX_LOCATION
+from settings import SPIDEX_LOCATION
 from variant import Variant
 
 

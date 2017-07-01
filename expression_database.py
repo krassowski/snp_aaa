@@ -3,7 +3,7 @@ from berkley_hash_set import BerkleyHashSet, BerkleyHashList
 import gzip
 from tqdm import tqdm
 import os
-from snp_parser import jit
+from jit import jit
 
 DEFAULT_PATH = 'GTEx_Analysis_v6p_eQTL'
 DEFAULT_SUFFIX = '_Analysis.v6p.signif_snpgene_pairs.txt.gz'

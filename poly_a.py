@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import print_function
-from snp_parser import jit
+from jit import jit
 
 
 @jit
@@ -54,24 +54,28 @@ def poly_a(seq, start, end, minimal_length=12,
     return accepted, best_match
 
 
-if __name__ == '__main__':
+def test_has_poly_a():
     """ One could implement tests on real protein's sequences like:
 
-    RASAL2, ZCRB1, RBMK2 (this one has long region where 12-1 might not match)
+    RASAL2, ZCRB1, RBMK2 (this one has long region where 12-1 may not match)
     """
-    test_sequences = [
+    test_sequences = {
         #      ↓  ↓
-        'AAAAAA--------',
-        '---------AAAAA',
-        '------AAA-AA--',
-        '---AA-AAA-----',
-        '------A-AAAA--',
-        '-----AA-AAA---',
-        'AAAAA-A-------',
-        '-------A-AAAA-',
-        '-----AAA------',   # False
-        '---A--AA--AAA-'    # False
-    ]
+        'AAAAAA--------': True,
+        '---------AAAAA': True,
+        '------AAA-AA--': True,
+        '---AA-AAA-----': True,
+        '------A-AAAA--': True,
+        '-----AA-AAA---': True,
+        'AAAAA-A-------': True,
+        '-------A-AAAA-': True,
+        '-----AAA------': False,
+        '---A--AA--AAA-': False
+    }
 
-    for seq in test_sequences:
-        print(has_poly_a(seq, 6, 9, minimal_length=5))
+    for seq, expected_result in test_sequences:
+        assert expected_result == has_poly_a(seq, 6, 9, minimal_length=5)
+
+
+if __name__ == '__main__':
+    test_has_poly_a()

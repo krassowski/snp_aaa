@@ -68,7 +68,6 @@ def append_subparsers(parser):
     for group in SubparserGroupsRegistry.registry:
         group.parser = subcommands.add_parser(help=group.name, name=group.name)
 
-
     for group in SubparserGroupsRegistry.registry:
 
         name = group.name
