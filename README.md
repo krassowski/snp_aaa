@@ -28,8 +28,9 @@ All analyses run on genome assembly GRCh37 and use Ensembl release 88 unless sta
 Output of all analyses will be written to `.txt` files in `reports` directory.
 
 The primary goal of analysis was to investigate effects of variants which elongate or shorten poly(A) motifs on:
-* expression levels,
-* copy number variations,
+
+- expression levels,
+- copy number variations,
 
 and other quantitative protein-level determinants.
 
@@ -40,15 +41,15 @@ Aim: Select only poly(A) related variants (such that make the track longer, shor
 
 Full genome:
     Data sources:
-        - Raw Ensembl MySQL import data files (genes and variants)
+        - Raw Ensembl MySQL import data files (transcripts and variants)
 ```bash
 ./snp_parser.py --variants ensembl --report summarize_poly_aaa_variants
 ```
 
-Only genes known to have poly_aaa:
+Only transcripts known to have poly_aaa:
     Data sources:
-        - Ensembl's biomart (variants from dbSNP, Cosmic and others),
-        - PATACSDB (gene names)
+        - Ensembl (variants from dbSNP, Cosmic and others),
+        - PATACSDB (transcript names)
 ```bash
 ./snp_parser.py --report summarize_poly_aaa_variants --variants ensembl source-options ensembl --transcripts patacsdb
 ```
@@ -103,9 +104,9 @@ Full genome:
 ./snp_parser.py --variants ensembl --report poly_aaa_vs_spidex
 ```
 
-Only genes known to have poly_aaa (this might be very slow):
+Only transcripts known to have poly_aaa:
 ```bash
-./snp_parser.py --variants biomart --report poly_aaa_vs_spidex
+./snp_parser.py --report poly_aaa_vs_spidex --variants ensembl source-options ensembl --transcripts patacsdb
 ```
 
 
@@ -269,33 +270,31 @@ It would be beneficial to split the final association table to separate tables f
 
 ### Dependencies
 
-To use biomart API, the parser uses [fork of pip-distributed biomart](https://github.com/krassowski/biomart) package (which is 2 features ahead of the original repository, pull request has been already sent).
-To download it, type following from snp_aaa directory:
-```
-git clone https://github.com/krassowski/biomart
-```
-
-Other dependencies (vcf and tabix parser) might be installed easily with use of pip:
-
-```
-python2 -m pip install -r requirements.txt
-```
+I recommend installing this program inside `conda` environment.
 
 `samtools` or at least `htslib` is required:
+
 ```
 conda install -c bioconda samtools=1.4.1
-```
-
-Installing numba will speed up computations a lot:
-
-```
-conda install numba
 ```
 
 Pigz provides parallel decompression capabilities:
 ```
 conda install pigz
 ```
+
+After setting up `conda` other dependencies can be installed using `pip`:
+
+```
+python3 -m pip install -r requirements.txt
+```
+
+Installing `numba` is not required but will speed up computations a lot:
+
+```
+conda install numba
+```
+
 
 ### Recommended command to perform analyses
 
