@@ -95,9 +95,6 @@ Aim: Compare length / lengthening of poly(A) tracks by a variant with its predic
 Data source: SPIDEX
 
 Check effect of mutations changing length of poly_aaa in spidex database
-```bash
-./snp_parser.py --variants ensembl --report poly_aaa_vs_spidex
-```
 
 Full genome:
 ```bash

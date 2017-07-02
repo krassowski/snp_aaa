@@ -1,6 +1,7 @@
 from __future__ import print_function
 import pickle
 import os
+from pathlib import Path
 
 
 class CachingError(Exception):
@@ -10,10 +11,13 @@ class CachingError(Exception):
 class cacheable(object):
     """Makes caching a reasonable pleasure. Use as a decorator."""
 
+    cache_dir = Path('.cache')
+
     def __init__(self, func):
         self.func = func
         self.display_name = func.__name__.replace('_', ' ').title()
-        self.cache_name = '.cache/' + func.__name__
+        self.cache_name = self.cache_dir / func.__name__
+        self.cache_dir.mkdir(exist_ok=True)
 
     def file_name(self, *args, **kwargs):
         return self.cache_name
@@ -23,7 +27,7 @@ class cacheable(object):
         print('"' + self.display_name + '" saved to cache')
         file_name = self.file_name(*args, **kwargs)
 
-        with open(file_name, 'wb') as f:
+        with file_name.open('wb') as f:
             pickle.dump(result, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         return result
@@ -43,7 +47,7 @@ class cacheable(object):
         during decorated function execution.
         """
         file_name = self.file_name(*args, **kwargs)
-        if os.path.exists(file_name):
+        if file_name.exists():
             return self.load(*args, **kwargs)
         else:
             print(
@@ -62,7 +66,7 @@ class cacheable(object):
     def load(self, *args, **kwargs):
         print('Loading %s' % self.display_name)
         file_name = self.file_name(*args, **kwargs)
-        with open(file_name, 'rb') as f:
+        with file_name.open('rb') as f:
             try:
                 result = pickle.load(f)
             except AttributeError as e:
@@ -87,7 +91,9 @@ class args_aware_cacheable(cacheable):
     def file_name(self, *args, **kwargs):
         args_repr = ', '.join(map(self.safe_name, args))
         kwargs_repr = ', '.join('%s=%s' % (self.safe_name(k), self.safe_name(v)) for k, v in kwargs.items())
-        return '%s(%s; %s)' % (self.cache_name, args_repr, kwargs_repr)
+        if args_repr:
+            kwargs_repr = ', ' + kwargs_repr
+        return self.cache_dir / ('%s(%s%s)' % (self.func.__name__, args_repr, kwargs_repr))
 
     def __call__(self, *args, **kwargs):
         return self.load_or_create(*args, **kwargs)

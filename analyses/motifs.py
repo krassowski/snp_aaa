@@ -47,7 +47,7 @@ def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=No
     # determine how many sequences can be put in file
     if max_sequence_length:
         some_sequence = variants[0].sequence
-        slice_by = min(slice_by or 0, max_sequence_length / len(some_sequence) - 1)
+        slice_by = min(slice_by or 0, max_sequence_length // len(some_sequence) - 1)
 
     location = 'motifs_discovery/' + dir_name
 

@@ -21,8 +21,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set(color_codes=True)
 
-DRAW_PLOTS = True
-
 
 headers = [
     'chromosome', 'position', 'ref_allele', 'mut_allele',
@@ -56,31 +54,27 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
         print(query)
 
 
-def draw_plot(plot, extension='svg', size=(19.2, 12)):
+def save_plot(plot, extension='svg', size=(19.2, 12), path='reports/'):
 
-    if DRAW_PLOTS:
-        from matplotlib import axes
-        import matplotlib as mpl
-        mpl.rcParams['figure.figsize'] = '%s, %s' % size
+    from matplotlib import axes
+    import matplotlib as mpl
+    mpl.rcParams['figure.figsize'] = '%s, %s' % size
 
-        seaborns = [
-            sns.axisgrid.JointGrid,
-            sns.axisgrid.FacetGrid
-        ]
+    seaborns = [
+        sns.axisgrid.JointGrid,
+        sns.axisgrid.FacetGrid
+    ]
 
-        if type(plot) is ggplot:
-            ggsave(filename=plot.title + '.' + extension, plot=plot, width=size[0], height=size[1])
-            #plot.draw().waitforbuttonpress()
-        elif type(plot) in seaborns:
-            #plot.fig.show()
-            plot.fig.set_size_inches(*size)
-            plot.fig.savefig(plot.ax.title.get_text() + '.' + extension)
-        elif type(plot) is axes.Subplot:
-            #plot.figure.show()
-            plot.figure.set_size_inches(*size)
-            plot.figure.savefig(plot.title.get_text() + '.' + extension)
-        else:
-            raise Exception('Unrecognized plot type: %s' % type(plot))
+    if type(plot) is ggplot:
+        ggsave(filename=path + plot.title + '.' + extension, plot=plot, width=size[0], height=size[1])
+    elif type(plot) in seaborns:
+        plot.fig.set_size_inches(*size)
+        plot.fig.savefig(path + plot.ax.title.get_text() + '.' + extension)
+    elif type(plot) is axes.Subplot:
+        plot.figure.set_size_inches(*size)
+        plot.figure.savefig(path + plot.title.get_text() + '.' + extension)
+    else:
+        raise Exception('Unrecognized plot type: %s' % type(plot))
 
 
 def prepare_data_frame(data_dict, melt=True):
@@ -315,7 +309,6 @@ def spidex_from_list(variants_list):
                 else:
                     record = relevant_record
 
-                    #print('Record', record)
                     spidex_raw_report.append([variant.snp_id, alt, aaa_data, record])
                     spidex_raw_unique[
                         (
@@ -336,7 +329,6 @@ def spidex_from_list(variants_list):
                     ] = [variant.snp_id, alt, aaa_data, record]
 
                     record_data = variant_data
-                    #print('This record is of type ', record, ': >', record)
                     record_data += [record.dpsi_max_tissue, record.dpsi_zscore]
 
                     spidex_report.append(record_data)
@@ -473,13 +465,13 @@ def plot_aaa_vs_spidex(variants_groups):
         return plot
 
     p = density_plot()
-    draw_plot(p)
+    save_plot(p)
 
     p = density_plot(by='max_dpsi')
-    draw_plot(p)
+    save_plot(p)
 
     p = density_plot(categorical=False)
-    draw_plot(p)
+    save_plot(p)
 
     data_dict = OrderedDict(
         (
@@ -503,27 +495,27 @@ def plot_aaa_vs_spidex(variants_groups):
     p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation')
     p.ax.set_ylabel('PSI z-score')
-    draw_plot(p)
+    save_plot(p)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
     p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation [noised with visual jitter]')
     p.ax.set_ylabel('PSI z-score')
-    draw_plot(p)
+    save_plot(p)
 
     plt.figure(max(plt.get_fignums()) + 1)
     g = sns.boxplot(x='variable', y='value', data=df)
     g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('PSI z-score')
-    draw_plot(g)
+    save_plot(g)
 
     plt.figure(max(plt.get_fignums()) + 1)
     g = sns.violinplot(x='variable', y='value', data=df)
     g.axes.set_title('Violin: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('PSI z-score')
-    draw_plot(g)
+    save_plot(g)
 
     data_dict = OrderedDict(
         (
@@ -542,23 +534,20 @@ def plot_aaa_vs_spidex(variants_groups):
     p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean | length')
     p.ax.set_xlabel('AAA track length resulting from given mutation')
     p.ax.set_ylabel('PSI z-score')
-    draw_plot(p)
+    save_plot(p)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
     p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered | length')
     p.ax.set_xlabel('AAA length resulting from given mutation [noised with visual jitter]')
     p.ax.set_ylabel('PSI z-score')
-    draw_plot(p)
+    save_plot(p)
 
     plt.figure(max(plt.get_fignums()) + 1)
     g = sns.boxplot(x='variable', y='value', data=df)
     g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | length')
     g.set_xlabel('AAA track length resulting from given mutation')
     g.set_ylabel('PSI z-score')
-    draw_plot(g)
-
-    #from code import interact
-    #interact(local=dict(globals(), **locals()))
+    save_plot(g)
 
 
 @reporter
@@ -633,14 +622,10 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
         raw_report = spidex_from_list(aaa_variants_list)
         variants_groups = divide_variants_by_poly_aaa(raw_report)
 
-    full_spidex_zscore_dist = get_all_zscore.load_or_create()
-
     groups_zscores = {
         name: [point['dpsi_zscore'] for point in group]
         for name, group in variants_groups.items()
     }
-
-    #groups_zscores['all_in_spidex'] = full_spidex_zscore_dist
 
     for group_1, group_2 in combinations(groups_zscores, 2):
         print('%s vs %s:' % (group_1, group_2))

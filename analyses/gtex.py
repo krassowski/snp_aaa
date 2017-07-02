@@ -129,7 +129,7 @@ def poly_aaa_vs_expression(variants_by_gene):
         len2 = len(l2)
         assert len1 > len2
 
-        if len2 == 0 or len1 / len2 > 10:
+        if len2 == 0 or len1 // len2 > 10:
             return True
 
     gtex_report = []

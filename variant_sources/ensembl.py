@@ -223,7 +223,7 @@ def parse_short_tandem_repeat(allele, alleles):
         repeat_count = repeat_count[:-1]
         if '_' in repeat_count:
             min_count, max_count = map(int, repeat_count.split('_'))
-            repeat_count = (max_count + min_count) / 2
+            repeat_count = (max_count + min_count) // 2
         else:
             repeat_count = int(repeat_count)
         alt = ref * repeat_count
