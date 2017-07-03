@@ -1,6 +1,5 @@
 from __future__ import print_function
 import pickle
-import os
 from pathlib import Path
 
 
@@ -75,7 +74,7 @@ class cacheable(object):
                     'Please, make sure that the cache files correspond'
                     ' to this version of application.\n'
                     'Original exception: %s.' %
-                    (self.display_name, e.message)
+                    (self.display_name, e)
                 )
             return result
 

@@ -120,7 +120,7 @@ class BerkleyHashSet(BerkleyHash):
 
     def __getitem__(self, key):
         """key: has to be str"""
-        key = bytes(key)
+        key = key.encode('utf-8')
         try:
             items = list(
                 filter(

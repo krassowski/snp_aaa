@@ -4,6 +4,8 @@
 import traceback
 from argparse import ArgumentParser
 
+from multiprocessing import freeze_support
+
 from analyses import analyses
 from cache import cacheable
 from commands import append_commands
@@ -106,7 +108,7 @@ def main(args):
         print('No analyses specified.')
 
 if __name__ == '__main__':
-
+    freeze_support()
     parser = create_arg_parser()
     parsed_args = parser.parse_args()
 

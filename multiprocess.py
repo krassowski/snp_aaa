@@ -6,9 +6,12 @@ from time import sleep
 
 from tqdm import tqdm
 
-from multiprocessing import Process, Manager
-
 from cache import args_aware_cacheable
+
+from multiprocessing import get_context
+
+ctx = get_context('spawn')
+
 
 
 @contextmanager
@@ -56,19 +59,32 @@ def parser(progress_updates, in_queue):
         progress_updates.put(len(lines))
 
 
+def get_manager(manager_store=[]):
+    if not manager_store:
+        manager = ctx.Manager()
+        manager_store.append(manager)
+    return manager_store[0]
+
+
+def progress_bar_listener(filename, queue):
+    bar = tqdm(total=count_lines(filename))
+    for step in iter(queue.get, None):
+        if step is None:
+            return
+        bar.update(step)
+        sleep(0.05)
+
+
 def parse_gz_file(filename, target, static_args=None, shared_args=None, chunk_size=100000, workers=6):
 
-    def progress_bar_listener(queue):
-        bar = tqdm(total=count_lines(filename))
-        for step in iter(queue.get, None):
-            if step is None:
-                return
-            bar.update(step)
-            sleep(0.05)
+    manager = get_manager()
 
     progress_updates = manager.Queue()
 
-    progress_bar_process = Process(target=progress_bar_listener, args=[progress_updates])
+    # clean up before fork
+    gc.collect()
+
+    progress_bar_process = ctx.Process(target=progress_bar_listener, args=[filename, progress_updates])
     progress_bar_process.start()
 
     in_queue = manager.Queue(workers)
@@ -81,7 +97,7 @@ def parse_gz_file(filename, target, static_args=None, shared_args=None, chunk_si
 
     pool = []
     for _ in range(workers):
-        process = Process(
+        process = ctx.Process(
             target=target,
             args=[progress_updates, in_queue] + static_args + shared_args,
         )
@@ -107,6 +123,8 @@ def parse_gz_file(filename, target, static_args=None, shared_args=None, chunk_si
     progress_bar_process.join()
 
     print('Joined all')
+
+    # clean up after work
     gc.collect()
 
     return shared_args
@@ -117,4 +135,3 @@ def grouper(iterable, chunk_size, fill_value=None):
     return itertools.zip_longest(fillvalue=fill_value, *args)
 
 
-manager = Manager()

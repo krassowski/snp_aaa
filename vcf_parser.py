@@ -8,7 +8,10 @@ class UnknownChromosome(Exception):
 
 
 class ParsingError(Exception):
-    pass
+
+    @property
+    def message(self):
+        return ', '.join(self.args)
 
 
 def str_or_empty(x):

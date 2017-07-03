@@ -55,7 +55,6 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
 
 
 def save_plot(plot, extension='svg', size=(19.2, 12), path='reports/'):
-
     from matplotlib import axes
     import matplotlib as mpl
     mpl.rcParams['figure.figsize'] = '%s, %s' % size

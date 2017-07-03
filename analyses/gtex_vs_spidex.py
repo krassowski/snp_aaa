@@ -3,7 +3,6 @@ import tabix
 
 import numpy as np
 import subprocess
-from pyfaidx import Fasta
 from scipy.stats import pearsonr
 from tqdm import tqdm
 

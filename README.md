@@ -267,28 +267,39 @@ It would be beneficial to split the final association table to separate tables f
 
 ### Dependencies
 
-I recommend installing this program inside `conda` environment.
+I recommend installing this program inside `anaconda3` environment.
 
 `samtools` or at least `htslib` is required:
 
-```
+```bash
 conda install -c bioconda samtools=1.4.1
 ```
 
 Pigz provides parallel decompression capabilities:
-```
+```bash
 conda install pigz
 ```
 
+Berkley hash-key database has to be installed in your system.
+On Ubuntu & Debian you can use:
+
+```bash
+sudo apt install python3-bsddb3 libdb5.3-dev
+```
+
+Version 5.3 of `libdb` was used above as an example
+and was the newest one available on Ubuntu at time of writing.
+Please verify if repositories you use have newer version available.
+
 After setting up `conda` other dependencies can be installed using `pip`:
 
-```
+```bash
 python3 -m pip install -r requirements.txt
 ```
 
 Installing `numba` is not required but will speed up computations a lot:
 
-```
+```bash
 conda install numba
 ```
 
@@ -296,7 +307,7 @@ conda install numba
 ### Recommended command to perform analyses
 
 ```
-~/anaconda2/bin/python -u -O snp_parser.py --report analysis_name | tee analysis_name.version.log
+~/anaconda3/bin/python3 -u -O snp_parser.py --report analysis_name | tee analysis_name.version.log
 ```
 
 Note that `--reports` option can accept multiple values at once; therefore it has to be the last one in the command (so the parser can consume all following words as values of `--reports`)

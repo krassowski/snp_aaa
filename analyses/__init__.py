@@ -1,7 +1,12 @@
-import os
 from collections import OrderedDict
 
+from pathlib import Path
+
 from helpers import decorator_maker
+
+
+reports_dir = Path('reports')
+reports_dir.mkdir(exist_ok=True)
 
 
 def report(name, data, column_names=()):
@@ -11,19 +16,16 @@ def report(name, data, column_names=()):
     from 'name' of the report. The data should be an iterable
     collection of strings. Empty reports will not be created.
     """
-    directory = 'reports'
+    data = list(data)
 
     if not data:
         print('Nothing to report for %s' % name)
         return
 
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
     filename = name.replace(' ', '_') + '.txt'
-    path = os.path.join(directory, filename)
+    path = reports_dir / filename
 
-    with open(path, 'w') as f:
+    with path.open('w') as f:
         if column_names:
             f.write('\t'.join(column_names) + '\n')
         f.write('\n'.join(data))
