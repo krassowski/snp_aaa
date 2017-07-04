@@ -1,5 +1,5 @@
 from analyses.spidex import complement, convert_to_strand
-from berkley_hash_set import BerkleyHashSet, BerkleyHashList
+from berkley_hash_mutable_callback import BerkleyHashSet, BerkleyHashList
 import gzip
 from tqdm import tqdm
 import os

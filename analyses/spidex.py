@@ -1,6 +1,5 @@
 from __future__ import print_function
 from collections import OrderedDict, defaultdict
-import gzip
 from itertools import combinations
 from operator import itemgetter
 
@@ -8,7 +7,6 @@ from tqdm import tqdm
 
 from analyses import report, reporter
 from scipy.stats import ks_2samp
-from jit import jit
 from helpers import all_poly_a_variants
 from settings import SPIDEX_LOCATION
 from cache import cacheable
@@ -54,7 +52,7 @@ def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
         print(query)
 
 
-def save_plot(plot, extension='svg', size=(19.2, 12), path='reports/'):
+def save_plot(plot, extension='svg', size=(19.2, 12), path='reports/', switch_to_next_figure=True):
     from matplotlib import axes
     import matplotlib as mpl
     mpl.rcParams['figure.figsize'] = '%s, %s' % size
@@ -72,8 +70,15 @@ def save_plot(plot, extension='svg', size=(19.2, 12), path='reports/'):
     elif type(plot) is axes.Subplot:
         plot.figure.set_size_inches(*size)
         plot.figure.savefig(path + plot.title.get_text() + '.' + extension)
+    elif plot is plt:
+        figure = plt.gcf()
+        axes = plt.gca()
+        figure.set_size_inches(*size)
+        figure.savefig(path + axes.title.get_text() + '.' + extension)
     else:
         raise Exception('Unrecognized plot type: %s' % type(plot))
+    if switch_to_next_figure:
+        new_figure()
 
 
 def prepare_data_frame(data_dict, melt=True):
@@ -235,6 +240,27 @@ def spidex_from_list(variants_list):
     skipped_strand_mismatch = []
     skipped_indels = []
 
+    all_columns = [
+        'chr_name',
+        'chr_start',
+        'chr_end',
+        'ref',
+        'alt',
+        'ensembl_gene_stable_id',
+        'chr_strand',
+        'ensembl_transcript_stable_id',
+        'aaa_increased',
+        'aaa_decreased',
+        'aaa_change',
+        'aaa_before',
+        'aaa_after',
+        'snp_id',
+        'dpsi_max_tissue',
+        'dpsi_zscore'
+    ]
+
+    Record = recordclass('SpidexRecord', all_columns)
+
     counter = 0
 
     for variant in variants_list:
@@ -258,7 +284,7 @@ def spidex_from_list(variants_list):
                 if alt in to_skip:
                     continue
 
-                variant_data = [
+                variant_data = Record(
                     variant.chr_name,
                     variant.chr_start,
                     variant.chr_end,
@@ -273,7 +299,9 @@ def spidex_from_list(variants_list):
                     aaa_data.before,
                     aaa_data.after,
                     variant.snp_id,
-                ]
+                    None,
+                    None
+                )
 
                 relevant_record = None
 
@@ -327,10 +355,10 @@ def spidex_from_list(variants_list):
                         )
                     ] = [variant.snp_id, alt, aaa_data, record]
 
-                    record_data = variant_data
-                    record_data += [record.dpsi_max_tissue, record.dpsi_zscore]
+                    variant_data.dpsi_max_tissue = record.dpsi_max_tissue
+                    variant_data.dpsi_zscore = record.dpsi_zscore
 
-                    spidex_report.append(record_data)
+                    spidex_report.append(variant_data)
 
     print(
         'Following mutations were nor found in SPIDEX'
@@ -343,41 +371,27 @@ def spidex_from_list(variants_list):
 
     report(
         'spidex',
-        map(row_to_tsv, spidex_report),
-        [
-            'chr_name',
-            'chr_start',
-            'chr_end',
-            'ref',
-            'alt',
-            'ensembl_gene_stable_id',
-            'chr_strand',
-            'ensembl_transcript_stable_id',
-            'aaa_increased',
-            'aaa_decreased',
-            'aaa_change',
-            'aaa_before',
-            'aaa_after',
-            'snp_id',
-            'dpsi_max_tissue',
-            'record.dpsi_zscore'
-        ]
+        spidex_report,
+        all_columns
     )
+    print('Accepted %s mutations' % len({record.snp_id for record in spidex_report}))
+    print('Accepted %s unique mutations' % len({(record.chr_name, record.chr_start, record.chr_end, record.alt) for record in spidex_report}))
+
     report(
         'spidex_to_test_online',
-        map(row_to_tsv, to_test_online),
+        to_test_online,
         ['chr_name', 'chr_start', 'snp_id', 'ref', 'alt']
     )
 
     report(
         'spidex_skipped_intronic',
-        map(row_to_tsv, skipped_intronic),
+        skipped_intronic,
         ['snp_id', 'chr_name', 'chr_start']
     )
 
     report(
         'spidex_skipped_strand_mismatch',
-        map(row_to_tsv, skipped_strand_mismatch),
+        skipped_strand_mismatch,
         ['snp_id', 'chr_strand', 'SPIDEX_strand']
     )
 
@@ -408,6 +422,12 @@ def divide_variants_by_poly_aaa(raw_unique_report):
     }
 
     return variants_groups
+
+
+def new_figure():
+    figures = plt.get_fignums()
+    if figures:
+        plt.figure(max(figures) + 1)
 
 
 def plot_aaa_vs_spidex(variants_groups):
@@ -502,14 +522,12 @@ def plot_aaa_vs_spidex(variants_groups):
     p.ax.set_ylabel('PSI z-score')
     save_plot(p)
 
-    plt.figure(max(plt.get_fignums()) + 1)
     g = sns.boxplot(x='variable', y='value', data=df)
     g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('PSI z-score')
     save_plot(g)
 
-    plt.figure(max(plt.get_fignums()) + 1)
     g = sns.violinplot(x='variable', y='value', data=df)
     g.axes.set_title('Violin: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
@@ -541,12 +559,12 @@ def plot_aaa_vs_spidex(variants_groups):
     p.ax.set_ylabel('PSI z-score')
     save_plot(p)
 
-    plt.figure(max(plt.get_fignums()) + 1)
     g = sns.boxplot(x='variable', y='value', data=df)
     g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | length')
     g.set_xlabel('AAA track length resulting from given mutation')
     g.set_ylabel('PSI z-score')
     save_plot(g)
+
 
 
 @reporter
@@ -662,14 +680,18 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
             for zscore in group
             if name > new_aaa_length
         ]
+        if not z_scores_2:
+            print('No mutations causing poly_aaa to be > %s' % new_aaa_length)
+            continue
         ks_result = ks_2samp(z_scores_1, z_scores_2)
         print(ks_result)
         ks_results[new_aaa_length] = - np.log(ks_result.pvalue)
 
-    lengths = ks_results.keys()
+    lengths = list(ks_results.keys())
+
     plt.hist(
         lengths,
-        weights=ks_results.values(),
+        weights=list(ks_results.values()),
         bins=range(min(lengths), max(lengths)),
         rwidth=0.9
     )
@@ -682,7 +704,7 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
         'mutations effecting in poly(A) length $\leq$ $x$ vs mutations effecting in poly(A) length > $x$'
     )
     plt.grid(True)
-    plt.show()
+    save_plot(plt)
 
 
 @reporter

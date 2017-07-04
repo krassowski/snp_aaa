@@ -9,28 +9,35 @@ reports_dir = Path('reports')
 reports_dir.mkdir(exist_ok=True)
 
 
-def report(name, data, column_names=()):
+def row_to_tsv(data):
+    return '\t'.join(map(str, data))
+
+
+def report(name, rows, column_names=()):
     """Generates list-based report quickly.
 
     File will be placed in 'reports' dir and name will be derived
     from 'name' of the report. The data should be an iterable
     collection of strings. Empty reports will not be created.
     """
-    data = list(data)
+    rows = list(rows)
 
-    if not data:
+    if not rows:
         print('Nothing to report for %s' % name)
         return
 
-    filename = name.replace(' ', '_') + '.txt'
+    if type(rows[0]) is not str:
+        rows = [row_to_tsv(row) for row in rows]
+
+    filename = name.replace(' ', '_') + '.tsv'
     path = reports_dir / filename
 
     with path.open('w') as f:
         if column_names:
             f.write('\t'.join(column_names) + '\n')
-        f.write('\n'.join(data))
+        f.write('\n'.join(rows))
 
-    print('Created report "%s" with %s entries' % (name, len(data)))
+    print('Created report "%s" with %s entries' % (name, len(rows)))
 
 
 analyses = OrderedDict()
