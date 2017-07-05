@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 
-class CosmicMappings(object):
+class CosmicMappings:
 
     def __init__(self, path='cosmic/v79/All_COSMIC_Genes.fasta'):
         self.transcript_to_gene = {}
@@ -20,7 +20,7 @@ class CosmicMappings(object):
         return self.gene_to_transcript[gene]
 
 
-class CompleteCNA(object):
+class CompleteCNA:
     # join -1 2 -2 14 <(cat pnma1.temp.tsv | sort -k2) \
     # <(cat cna.pnma1.temp.tsv | sort -k14)
 

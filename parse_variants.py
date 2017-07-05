@@ -3,7 +3,7 @@ from __future__ import print_function
 from collections import defaultdict
 
 from poly_a import poly_a
-from variant import PolyAAAData
+from models import PolyAAAData
 
 
 OFFSET = 20

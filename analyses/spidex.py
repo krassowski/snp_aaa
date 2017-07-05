@@ -1,5 +1,5 @@
 from __future__ import print_function
-from collections import OrderedDict, defaultdict
+from collections import OrderedDict, defaultdict, Counter
 from itertools import combinations
 from operator import itemgetter
 
@@ -33,14 +33,9 @@ def row_to_tsv(data):
     return '\t'.join(map(str, data))
 
 
-def show_spanr_queries(to_test_online, step=40, exclude_indels=True):
+def show_spanr_queries(to_test_online, step=40):
     """Prepare queries to be run on http://tools.genes.toronto.edu"""
-    if exclude_indels:
-        to_test_online = [
-            [chrom, start, rs, ref, alt]
-            for chrom, start, rs, ref, alt in to_test_online
-            if alt != '-' and len(ref) == len(alt)
-        ]
+    to_test_online = list(to_test_online)
     for start in range(0, len(to_test_online), step):
 
         query = [
@@ -124,7 +119,10 @@ class Intronic(Exception):
     pass
 
 
-#@jit
+class ToManyRecords(Exception):
+    pass
+
+
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):
     """
     location: if on of (None, 'intronic', 'exonic') is given,
@@ -145,7 +143,7 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
     if len(relevant_records) != 1:
         message = 'Too many records given!'
         if strict:
-            raise ValueError(message)
+            raise ToManyRecords(message)
         else:
             print(message, 'For variant:')
             print(variant)
@@ -176,16 +174,16 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
     if variant.chr_strand != strand:
         repr_data = (variant.snp_id, variant.chr_strand, strand)
         message = (
-            'Skipping record for: %s - '
+            'Skipping record of id "%s": '
             'incorrect strand %s in variant vs %s in record' %
             repr_data
         )
         if strict:
             raise StrandMismatch(message, repr_data, variant)
         else:
-            # TODO
-            # print(message)
-            # print(variant)
+            print(message)
+            print(record.ref_allele)
+            print(variant)
             return []
 
     if convert_to_strand(record.ref_allele, record.strand) != variant.ref:
@@ -235,10 +233,11 @@ def spidex_from_list(variants_list):
     spidex_raw_report = []
     spidex_raw_unique = {}
     spidex_report = []
-    to_test_online = []
+    to_test_online = set()
     skipped_intronic = []
     skipped_strand_mismatch = []
     skipped_indels = []
+    counter = Counter()
 
     all_columns = [
         'chr_name',
@@ -261,10 +260,8 @@ def spidex_from_list(variants_list):
 
     Record = recordclass('SpidexRecord', all_columns)
 
-    counter = 0
-
     for variant in variants_list:
-        counter += 1
+        counter['variants'] += 1
 
         records = spidex_get_variant(tb, variant)
 
@@ -306,32 +303,34 @@ def spidex_from_list(variants_list):
                 relevant_record = None
 
                 try:
-                    #print('Records are:', records)
                     relevant_record = choose_record(
                         records,
                         variant,
                         alt,
-                        convert_strands=True
+                        convert_strands=True,
+                        strict=True
                     )
                 except StrandMismatch as e:
-                    print(e.message)
                     skipped_strand_mismatch.append(e.args[1])
                 except Intronic as e:
-                    print(e.message)
                     skipped_intronic.append(e.args[1])
-                except Mismatch as e:
-                    print(e.message)
+                except Mismatch:
+                    counter['mismatch'] += 1
+                except ToManyRecords:
+                    counter['multiple_records'] += 1
 
                 if not relevant_record:
-                    to_test_online.append(
-                        [
-                            variant.chr_name,
-                            variant.chr_start,
-                            variant.snp_id,
-                            variant.ref,
-                            alt or '-'
-                        ]
-                    )
+
+                    if alt and len(variant.ref) == len(alt) == 1:
+                        to_test_online.add(
+                            (
+                                variant.chr_name,
+                                variant.chr_start,
+                                variant.snp_id,
+                                variant.ref,
+                                alt
+                            )
+                        )
 
                 else:
                     record = relevant_record
@@ -367,7 +366,9 @@ def spidex_from_list(variants_list):
     show_spanr_queries(to_test_online)
 
     print('Skipped %s indels (SPIDEX does only 1-1 SNPs)' % len(skipped_indels))
-    print('Analysed %s mutations.' % counter)
+    print('Analysed %s mutations.' % counter['variants'])
+    print('Not indel and not SNV: %s' % counter['multiple_records'])
+    print('Mismatches: %s' % counter['mismatch'])
 
     report(
         'spidex',

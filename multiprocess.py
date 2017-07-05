@@ -12,11 +12,9 @@ from multiprocessing import get_context
 
 ctx = get_context('spawn')
 
-
-
 @contextmanager
-def fast_gzip_read(file_name, single_thread=False):
-    command = 'zcat %s' if single_thread else 'unpigz -p 4 -c %s'
+def fast_gzip_read(file_name, processes=4):
+    command = 'zcat %s' if processes == 1 else 'unpigz -p ' + str(processes) + ' -c %s'
     p = subprocess.Popen(
         (command % file_name).split(' '),
         #shell=True,

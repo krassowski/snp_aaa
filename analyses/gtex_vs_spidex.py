@@ -7,16 +7,16 @@ from scipy.stats import pearsonr
 from tqdm import tqdm
 
 import settings
-from analyses import reporter
+from analyses import reporter, report
 from analyses.motifs import get_cds_positions, prepare_files_with_motifs, find_motifs, load_refseq_sequences
 from analyses.spidex import convert_to_strand
 from analyses.spidex import spidex_get_variant, choose_record
 from cache import cacheable
-from expression_database import ExpressedGenes, iterate_over_expression, Gene
-from expression_database import count_all, TISSUES_LIST, import_expressed_genes
+from expression_database import ExpressedGenes, iterate_over_expression
+from expression_database import count_all, GTEX_TISSUES, import_expressed_genes
 from jit import jit
 from settings import SPIDEX_LOCATION
-from variant import Variant
+from models import SingleAltVariant, Gene
 
 
 def create_path_for_genes_db(tissues):
@@ -25,7 +25,8 @@ def create_path_for_genes_db(tissues):
 
     from hashlib import sha224
 
-    tissues_hash_code = sha224(','.join(tissues)).hexdigest()
+    tissues_serialized = ','.join(tissues).encode('utf-8')
+    tissues_hash_code = sha224(tissues_serialized).hexdigest()
 
     return 'genes_{hash_code}.db'.format(
         hash_code=tissues_hash_code
@@ -72,7 +73,7 @@ def get_muts_groups_and_seqs(cds_offset):
     """
     variants = {}
 
-    class Record(object):
+    class Record:
         __slots__ = ('variant', 'zscore', 'g', 'valid', 'inconsistent', 'spidex_record')
 
         def __init__(self, variant, zscore, gene):
@@ -87,7 +88,7 @@ def get_muts_groups_and_seqs(cds_offset):
         if spidex_record.location != 'exonic':
             continue
 
-        key = (variant.chr_name, variant.chr_start, variant.alts[0], g.name)
+        key = (variant.chr_name, variant.chr_start, variant.alt, g.name)
 
         slope = float(slope)
         zscore = float(spidex_record.dpsi_zscore)
@@ -130,7 +131,7 @@ def get_muts_groups_and_seqs(cds_offset):
     too_close_cnt = 0
 
     for r in variants.values():
-        ensembl_gene = r.variant.ensembl_gene_stable_id.split('.')[0]
+        ensembl_gene = r.variant.gene.split('.')[0]
         variant = r.variant
         # check that we are one 'offset' away from UTRs
         try:
@@ -246,30 +247,30 @@ def gtex_on_spidex_motifs_meme_online(_):
 def gtex_on_spidex(_):
     effect_sizes = []
     z_scores = []
+    report_data = []
 
-    with open('gtex_vs_spidex.csv', 'w') as f:
-        f.write(
-            'chrom,pos,ref,alt,gene_name,gene_start,gene_end,gene_strand,'
-            'gtex_slope,gtex_tissue,spidex_dpsi_zscore,spidex_dpsi_max_tissue\n'
-        )
-        for variant, tissue, slope, record, g in iterate_gtex_vs_spidex():
-            f.write(','.join(map(str, [
-                variant.chr_name, variant.chr_start, variant.ref,
-                variant.alts[0], g.name, g.start, g.end, g.strand,
-                slope, tissue, record.dpsi_zscore, record.dpsi_max_tissue
-            ])) + '\n')
+    for variant, tissue, slope, record, g in iterate_gtex_vs_spidex():
+        report_data.append((
+            variant.chr_name, variant.chr_start, variant.ref,
+            variant.alt, g.name, g.start, g.end, g.strand,
+            slope, tissue, record.dpsi_zscore, record.dpsi_max_tissue
+        ))
 
-            effect_sizes.append(float(slope))
-            #z_scores.append(float(record.dpsi_max_tissue))
-            z_scores.append(float(record.dpsi_zscore))
+        effect_sizes.append(float(slope))
+        #z_scores.append(float(record.dpsi_max_tissue))
+        z_scores.append(float(record.dpsi_zscore))  # this is based on dpsi_max_tissues!
+
+    report(
+        'gtex_vs_spidex',
+        report_data,
+        'chrom,pos,ref,alt,gene_name,gene_start,gene_end,gene_strand,'
+        'gtex_slope,gtex_tissue,spidex_dpsi_zscore,spidex_dpsi_max_tissue'.split(',')
+    )
 
     print('Found %s pairs gtex-spidex' % len(effect_sizes))
 
-    with open('effect_sizes.txt', 'w') as f:
-        f.writelines([str(x) + '\n' for x in effect_sizes])
-
-    with open('z_scores.txt', 'w') as f:
-        f.writelines([str(x) + '\n' for x in z_scores])
+    report('effect_sizes', effect_sizes)
+    report('z_scores', z_scores)
 
     effect_sizes = np.array(effect_sizes)
     z_scores = np.array(z_scores)
@@ -281,7 +282,59 @@ def gtex_on_spidex(_):
     print(pearson_coef, p_value)
 
 
-def iterate_gtex_vs_spidex(**kwargs):
+@reporter
+def same_tissues_gtex_on_spidex(_):
+    effect_sizes = {}
+    z_scores = {}
+
+    spidex_tissues = [
+        'Adipose_Subcutaneous',
+        'Adipose_Visceral_Omentum',
+        'Adrenal_Gland',
+        'Brain_Anterior_cingulate_cortex_BA24',
+        'Brain_Caudate_basal_ganglia',
+        'Brain_Cerebellar_Hemisphere',
+        'Brain_Cerebellum',
+        'Brain_Cortex',
+        'Brain_Frontal_Cortex_BA9',
+        'Brain_Hippocampus',
+        'Brain_Hypothalamus',
+        'Brain_Nucleus_accumbens_basal_ganglia',
+        'Brain_Putamen_basal_ganglia',
+        'Breast_Mammary_Tissue',
+        # 'Cells_EBV-transformed_lymphocytes', not sure if it's better to include or not
+        'Colon_Sigmoid',
+        'Colon_Transverse',
+        'Heart_Atrial_Appendage',
+        'Heart_Left_Ventricle',
+        'Liver',
+        'Lung',
+        'Muscle_Skeletal',
+        'Ovary',
+        'Prostate',
+        'Testis',
+        'Thyroid',
+
+    ]
+
+    for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues):
+        slope = float(slope)
+        z_score = float(spidex_record.dpsi_zscore)
+
+        if variant not in effect_sizes:
+            effect_sizes[variant] = slope
+            z_scores[variant] = z_score
+
+        elif abs(slope) > abs(effect_sizes[variant]):
+            effect_sizes[variant] = slope
+            assert z_score == z_scores[variant]
+
+    pearson_coef, p_value = pearsonr(list(effect_sizes.values()), list(z_scores.values()))
+    print('Pearson\'s r; p-value')
+    print(pearson_coef, p_value)
+
+
+def iterate_gtex_vs_spidex(tissues=GTEX_TISSUES, **kwargs):
     """
     Yield records representing GTEx-SPIDEX pairs which are matching
     (the same position, reference and alternative alleles).
@@ -309,26 +362,25 @@ def iterate_gtex_vs_spidex(**kwargs):
 
     """
 
-    tissues_list = TISSUES_LIST
     # Use "Brain cortex" for basic tests - it's very small
     # tissues_list = ['Brain_Cortex']
     # Use "Adipose Subcutaneous" for larger tests
     # tissues_list = ['Adipose_Subcutaneous']
 
-    path = create_path_for_genes_db(tissues_list)
+    path = create_path_for_genes_db(tissues)
     genes = ExpressedGenes(path)
     genes.reset()
 
     import_expressed_genes(
         genes,
-        tissues_list=tissues_list
+        tissues=tissues
     )
 
     tb = tabix.open(SPIDEX_LOCATION)
 
-    count = count_all(tissues_list)
+    count = count_all(tissues)
 
-    for mutation_code, tissue, slope, gene in tqdm(iterate_over_expression(tissues_list), total=count):
+    for mutation_code, tissue, slope, gene in tqdm(iterate_over_expression(tissues), total=count):
         chrom, pos, ref, alt, _ = mutation_code.split('_')
 
         # In spidex there are only SNPs (single!)
@@ -347,15 +399,15 @@ def iterate_gtex_vs_spidex(**kwargs):
         if not (g.start <= pos <= g.end):
             continue
 
-        variant = Variant(
+        variant = SingleAltVariant(
             chr_name=chrom,
             chr_start=pos,
             chr_end=pos,
             chr_strand=g.strand,
             snp_id='-',
             ref=convert_to_strand(ref, g.strand),
-            alts=(convert_to_strand(alt, g.strand),),
-            ensembl_gene_stable_id=gene,
+            alt=convert_to_strand(alt, g.strand),
+            gene=gene
         )
 
         records = spidex_get_variant(tb, variant)
@@ -367,7 +419,7 @@ def iterate_gtex_vs_spidex(**kwargs):
                 for key, value in kwargs.items()
             )
         ]
-        record = choose_record(records, variant, variant.alts[0], strict=False)
+        record = choose_record(records, variant, variant.alt, strict=False)
 
         if record:
             if g.name != record.gene:

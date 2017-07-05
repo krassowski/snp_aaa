@@ -5,7 +5,7 @@ from jit import jit
 from multiprocess import get_manager
 from parse_variants import OFFSET
 from settings import TRANSCRIPT_DB_PATH
-from variant import AffectedTranscript
+from models import AffectedTranscript
 from variant_sources.ensembl.poly_aaa import get_poly_aaa, show_context
 from variant_sources.ensembl.allele_parsing import AlleleMismatch, parse_alleles
 from vcf_parser import ParsingError

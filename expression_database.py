@@ -1,16 +1,17 @@
-from analyses.spidex import complement, convert_to_strand
-from berkley_hash_mutable_callback import BerkleyHashSet, BerkleyHashList
-import gzip
-from tqdm import tqdm
 import os
-from jit import jit
+
+from tqdm import tqdm
+
+from analyses.spidex import convert_to_strand
+from berkley_hash_mutable_callback import BerkleyHashSet, BerkleyHashList
+from multiprocess import fast_gzip_read, count_lines
 
 DEFAULT_PATH = 'GTEx_Analysis_v6p_eQTL'
 DEFAULT_SUFFIX = '_Analysis.v6p.signif_snpgene_pairs.txt.gz'
-DEFAULT_GENE_SUFFIX ='_Analysis.v6p.egenes.txt.gz'
+DEFAULT_GENE_SUFFIX = '_Analysis.v6p.egenes.txt.gz'
 
 
-TISSUES_LIST = [
+GTEX_TISSUES = [
     'Adipose_Subcutaneous',
     'Adipose_Visceral_Omentum',
     'Adrenal_Gland',
@@ -58,31 +59,8 @@ TISSUES_LIST = [
 ]
 
 
-class Gene(object):
-    __slots__ = 'name, chrom, start, end, strand, sequence'.split(', ')
-
-    def __init__(self, name, chrom, start, end, strand, sequence=''):
-        self.name = name
-        self.chrom = chrom
-        self.start = int(start)
-        self.end = int(end)
-        self.strand = strand
-        self.sequence = sequence
-
-
 class ExpressedGenes(BerkleyHashList):
-
-    def __getitem__(self, gene_id):
-        value = super(ExpressedGenes, self).__getitem__(
-            gene_id
-        )
-        return value
-
-    def __setitem__(self, gene_id, value):
-
-        return super(ExpressedGenes, self).__setitem__(
-            gene_id, value
-        )
+    pass
 
 
 class ExpressionDatabase(BerkleyHashSet):
@@ -108,11 +86,6 @@ class ExpressionDatabase(BerkleyHashSet):
 
             data = self[key]
 
-            if data:
-                print(mutation.snp_id)
-                print(key)
-                print(data)
-
             results[alt] = [
                 datum.split(',')
                 for datum in data
@@ -128,18 +101,6 @@ class ExpressionDatabase(BerkleyHashSet):
                 for (t, e, g) in [datum.split(',')]
             ]
 
-    def __getitem__(self, mutation_key):
-        value = super(ExpressionDatabase, self).__getitem__(
-            mutation_key
-        )
-        return value
-
-    def __setitem__(self, mutation_key, value):
-
-        return super(ExpressionDatabase, self).__setitem__(
-            mutation_key, value
-        )
-
 
 def expression_file_paths(tissues_list, path, suffix):
     for tissue_name in tissues_list:
@@ -149,32 +110,30 @@ def expression_file_paths(tissues_list, path, suffix):
 
 
 def count_all(tissues_list, path=DEFAULT_PATH, suffix=DEFAULT_SUFFIX):
-    count = 0
-    for file_path in expression_file_paths(tissues_list, path, suffix):
-        with gzip.open(file_path) as file_object:
-            count += sum(1 for _ in file_object)
-
-    return count
+    return sum(
+        count_lines(path)
+        for path in expression_file_paths(tissues_list, path, suffix)
+    )
 
 
 def import_expressed_genes(
         bdb,
-        tissues_list=TISSUES_LIST,
+        tissues=GTEX_TISSUES,
         path=DEFAULT_PATH,
         suffix=DEFAULT_GENE_SUFFIX
 ):
     print('Importing expressed genes:')
 
-    count = count_all(tissues_list, path, suffix)
+    count = count_all(tissues, path, suffix)
 
     with tqdm(total=count) as progress:
 
-        for tissue_name in tissues_list:
+        for tissue_name in tissues:
             file_name = tissue_name + suffix
             file_path = os.path.join(path, file_name)
             print('Loading', file_name)
 
-            with gzip.open(file_path) as file_object:
+            with fast_gzip_read(file_path) as file_object:
                 # skip header
                 next(file_object)
 
@@ -197,9 +156,9 @@ def import_expressed_genes(
                     progress.update(1)
 
 
-@jit
+#@jit
 def iterate_over_expression(
-    tissues_list=TISSUES_LIST,
+    tissues_list=GTEX_TISSUES,
     path=DEFAULT_PATH,
     suffix=DEFAULT_SUFFIX
 ):
@@ -208,26 +167,26 @@ def iterate_over_expression(
         file_path = os.path.join(path, file_name)
         print('Loading', file_name)
 
-        file_object = gzip.open(file_path)
+        with fast_gzip_read(file_path) as file_object:
 
-        header_line = next(file_object)
-        header = dict()
-        for position, name in enumerate(header_line.split()):
-            header[name] = position
+            header_line = next(file_object)
+            header = dict()
 
-        slope_pos = header['slope']
-        gene_id_pos = header['gene_id']
-        variant_id_pos = header['variant_id']
+            for position, name in enumerate(header_line.split()):
+                header[name] = position
 
-        for line in file_object:
-            data = line.split()
-            yield (data[variant_id_pos], tissue_name, data[slope_pos], data[gene_id_pos])
-        file_object.close()
+            slope_pos = header['slope']
+            gene_id_pos = header['gene_id']
+            variant_id_pos = header['variant_id']
+
+            for line in file_object:
+                data = line.split()
+                yield (data[variant_id_pos], tissue_name, data[slope_pos], data[gene_id_pos])
 
 
 def import_expression_data(
     bdb,
-    tissues_list=TISSUES_LIST,
+    tissues=GTEX_TISSUES,
     path=DEFAULT_PATH,
     suffix=DEFAULT_SUFFIX
 ):
@@ -240,27 +199,10 @@ def import_expression_data(
     """
     print('Importing expression data:')
 
-    count = count_all(tissues_list, path, suffix)
+    count = count_all(tissues, path, suffix)
 
-    expression_data = iterate_over_expression(tissues_list, path, suffix)
+    expression_data = iterate_over_expression(tissues, path, suffix)
 
     for expr in tqdm(expression_data, total=count):
         bdb[expr[0]].add(','.join(expr[1:]))
 
-
-
-"""For tests use:
-from collections import namedtuple
-
-
-def convert(dictionary):
-    return namedtuple('GenericDict', dictionary.keys())(**dictionary)
-
-
-v = convert({'chrom': 1, 'pos': 787151, 'ref': 'G', 'alt': 'A'})
-
-bdb = ExpressionDatabase('expression_slope_in_tissues_by_mutation.db')
-bdb.get_by_mutation(v)
-
-print(bdb['1_693731_A_G_b37'])
-"""

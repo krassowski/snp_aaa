@@ -14,7 +14,7 @@ class SubparserGroupsRegistry(type):
         return new_class
 
 
-class Subparser(object, metaclass=SubparserGroupsRegistry):
+class Subparser(metaclass=SubparserGroupsRegistry):
 
     def __init__(self, *args, **kwargs):
 

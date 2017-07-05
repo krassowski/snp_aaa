@@ -1,7 +1,7 @@
 from output_formatter import formatter
 
 
-class SlottedObject(object):
+class SlottedObject:
 
     __slots__ = ()
     # volatile attributes will be ignored during objects comparison
@@ -89,7 +89,6 @@ class Variant(SlottedObject):
         'gene',
         'correct',
         'affected_transcripts',
-        #'refseq_transcript'
     )
 
     def __init__(self, **kwargs):
@@ -167,7 +166,19 @@ class Variant(SlottedObject):
         return self.chr_end - self.chr_start
 
 
-class PolyAAAData(object):
+class SingleAltVariant(Variant):
+
+    __slots__ = [s for s in Variant.__slots__] + [
+        'alt',
+        'refseq_transcript'
+    ]
+
+    @property
+    def alts(self):
+        return [self.alt]
+
+
+class PolyAAAData:
 
     __slots__ = ('has', 'will_have', 'before', 'after')
 
@@ -182,3 +193,15 @@ class PolyAAAData(object):
     @property
     def decreased(self):
         return self.change < 0
+
+
+class Gene:
+    __slots__ = 'name, chrom, start, end, strand, sequence'.split(', ')
+
+    def __init__(self, name, chrom, start, end, strand, sequence=''):
+        self.name = name
+        self.chrom = chrom
+        self.start = int(start)
+        self.end = int(end)
+        self.strand = strand
+        self.sequence = sequence

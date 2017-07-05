@@ -1,7 +1,7 @@
 from collections import defaultdict
 
 from commands import SourceSubparser
-from variant import Variant
+from models import Variant
 from variant_sources import variants_source
 
 from pandas import read_csv

@@ -3,7 +3,7 @@ from collections import defaultdict
 from jit import jit
 from parse_variants import OFFSET
 from poly_a import poly_a
-from variant import PolyAAAData
+from models import PolyAAAData
 
 
 @jit

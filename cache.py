@@ -7,7 +7,7 @@ class CachingError(Exception):
     pass
 
 
-class cacheable(object):
+class cacheable:
     """Makes caching a reasonable pleasure. Use as a decorator."""
 
     cache_dir = Path('.cache')

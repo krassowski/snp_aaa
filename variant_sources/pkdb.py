@@ -5,7 +5,7 @@ from variant_sources import variants_source
 
 from cache import cacheable
 from parse_variants import decode_hgvs_code
-from variant import Variant
+from models import Variant
 from recordclass import recordclass
 
 

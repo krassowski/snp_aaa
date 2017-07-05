@@ -2,7 +2,7 @@ import multiprocess
 from multiprocess import get_manager
 from parse_variants import OFFSET
 from settings import vcf_mutation_sources
-from variant import Variant
+from models import Variant
 from variant_sources.ensembl.allele_parsing import AlleleMismatch, parse_alleles
 from variant_sources.ensembl.poly_aaa import get_poly_aaa, show_context
 from vcf_parser import ParsingError, VariantCallFormatParser

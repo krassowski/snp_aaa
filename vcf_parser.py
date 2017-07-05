@@ -21,7 +21,7 @@ def str_or_empty(x):
         return str(x)
 
 
-class VariantCallFormatParser(object):
+class VariantCallFormatParser:
 
     def __init__(self, vcf_sources):
         """
