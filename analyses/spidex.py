@@ -17,8 +17,7 @@ from tqdm import tqdm
 from analyses import report, reporter
 from cache import cacheable
 from exceptions import StrandMismatch, Mismatch, Intronic, ToManyRecords, TranscriptMismatch
-from helpers import all_poly_a_variants
-from multiprocess import fast_gzip_read
+from helpers import all_poly_a_variants, IdMapper
 from settings import SPIDEX_LOCATION
 
 sns.set(color_codes=True)
@@ -111,19 +110,9 @@ def spidex_get_variant(tb, variant):
     return records
 
 
-class RefseqToEnsemblMapper:
+class RefseqToEnsemblMapper(IdMapper):
 
-    def __init__(self):
-        data = defaultdict(list)
-        with fast_gzip_read('refseq_to_ensembl.gz', processes=6) as f:
-            for line in f:
-                refseq, ensembl = line.strip().split('\t')
-                if ensembl != 'n/a':
-                    data[refseq].append(ensembl)
-        self.data = data
-
-    def map(self, ncbi_transcript):
-        return self.data[ncbi_transcript]
+    filename = 'refseq_to_ensembl.gz'
 
 
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False, test_transcript=False, test_strand=False, refseq_mapper=[]):
@@ -253,6 +242,7 @@ def spidex_from_list(variants_list):
     skipped_strand_mismatch = []
     skipped_indels = []
     counter = Counter()
+    variants_counter = defaultdict(set)
 
     all_columns = [
         'chr_name',
@@ -284,6 +274,7 @@ def spidex_from_list(variants_list):
         for alt in variant.alts:
             if variant.is_insertion(alt) or variant.is_deletion(alt):
                 skipped_indels.append((variant, alt))
+                variants_counter['skpped_indels'].add(variant)
                 to_skip.append(alt)
 
         for transcript in variant.affected_transcripts:
@@ -312,12 +303,14 @@ def spidex_from_list(variants_list):
                 except Intronic as e:
                     skipped_intronic.append(e.args[1])
                 except Mismatch:
-                    # TODO: it countrs different alts multiple times!!!! use some set or sth
                     counter['mismatch'] += 1
+                    variants_counter['mismatch'].add(variant)
                 except ToManyRecords:
                     counter['multiple_records'] += 1
+                    variants_counter['multiple_records'].add(variant)
                 except TranscriptMismatch:
                     counter['transcript_mismatch'] += 1
+                    variants_counter['transcript_mismatch'].add(variant)
                 else:
                     # save to test online only if no exception was raised
                     if not relevant_record:
@@ -367,8 +360,16 @@ def spidex_from_list(variants_list):
     print('Skipped %s indels (SPIDEX does only 1-1 SNPs)' % len(skipped_indels))
     print('Analysed %s mutations.' % counter['variants'])
     print('Not indel and not SNV: %s' % counter['multiple_records'])
-    print('Mismatches: %s' % counter['mismatch'])
+    print('Reference Mismatches: %s' % counter['mismatch'])
     print('Transcript Mismatches: %s' % counter['transcript_mismatch'])
+
+    variants_counter = {name: len(variants) for name, variants in variants_counter.items()}
+    variants_counter = Counter(variants_counter)
+
+    print('Variants with transcript mismatches: %s' % variants_counter['transcript_mismatch'])
+    print('Variants with reference mismatches: %s' % variants_counter['mismatch'])
+    print('Variants with an alt which has length > 1 but = to len(ref): %s' % variants_counter['multiple_records'])
+    print('Variants witch include indels (not SNV): %s' % variants_counter['skipped_indels'])
 
     report(
         'spidex',
@@ -396,12 +397,10 @@ def spidex_from_list(variants_list):
         ['snp_id', 'chr_strand', 'SPIDEX_strand']
     )
 
-    return spidex_raw_report.values()
+    return spidex_raw_report
 
 
-def divide_variants_by_poly_aaa(raw_unique_report):
-
-    spidex_raw_report = list(raw_unique_report.values())
+def divide_variants_by_poly_aaa(spidex_raw_report):
 
     def variants_list(aaa_condition):
         return [
@@ -518,6 +517,12 @@ def plot_aaa_vs_spidex(variants_groups):
 
     df = prepare_plot(variants, 'change', 'dpsi_zscore')
 
+    print('Testing length change vs dpsi_zscore')
+    dfc = df.dropna()
+    coef, p_value = pearsonr(dfc['variable'], dfc['value'])
+    print('Pearson\'s r', coef)
+    print('P-value', p_value)
+
     p = sns.lmplot(x='variable', y='value', data=df, x_estimator=np.mean)
     p.ax.set_title('Regression: Poly AAA mutations and dPSI z-score, estimator=mean | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation')
@@ -544,6 +549,12 @@ def plot_aaa_vs_spidex(variants_groups):
 
     df = prepare_plot(variants, 'new_aaa_length', 'max_dpsi')
 
+    print('Testing length vs max dpsi')
+    dfc = df.dropna()
+    coef, p_value = pearsonr(dfc['variable'], dfc['value'])
+    print('Pearson\'s r', coef)
+    print('P-value', p_value)
+
     g = sns.boxplot(x='variable', y='value', data=df)
     g.axes.set_title('Boxplot: Poly AAA mutations and max dPSI | length')
     g.set_xlabel('AAA track length resulting from given mutation')
@@ -559,6 +570,7 @@ def plot_aaa_vs_spidex(variants_groups):
 
     df = prepare_plot(variants, 'new_aaa_length', 'dpsi_zscore')
 
+    print('Testing length vs dpsi zscore')
     dfc = df.dropna()
     coef, p_value = pearsonr(dfc['variable'], dfc['value'])
     print('Pearson\'s r', coef)

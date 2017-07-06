@@ -11,7 +11,7 @@ import settings
 from analyses import reporter, report
 from analyses.motifs import get_cds_positions, prepare_files_with_motifs, find_motifs, load_refseq_sequences
 from analyses.spidex import convert_to_strand
-from exceptions import StrandMismatch, Intronic
+from exceptions import StrandMismatch, Intronic, ToManyRecords
 from analyses.spidex import spidex_get_variant, choose_record
 from cache import cacheable
 from expression_database import ExpressedGenes, iterate_over_expression
@@ -319,7 +319,9 @@ def same_tissues_gtex_on_spidex(_):
 
     ]
 
-    #for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues, strict=True, only_the_same_gene=True):
+    #for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues, strict=True, no_further_than_x_from_gene=1000000):
+    #    pass
+
     for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues, strict=True):
         slope = float(slope)
         z_score = float(spidex_record.dpsi_zscore)
@@ -343,15 +345,15 @@ def same_tissues_gtex_on_spidex(_):
     print('P-value', p_value)
 
 
-def iterate_gtex_vs_spidex(strict=False, tissues=GTEX_TISSUES, location=None, filters=None, only_the_same_gene=False):
+def iterate_gtex_vs_spidex(strict=False, tissues=GTEX_TISSUES, location=None, filters=None, no_further_than_x_from_gene=None):
     """
     Yield records representing GTEx-SPIDEX pairs which are matching
     (the same position, reference and alternative alleles).
 
     Args:
+        no_further_than_x_from_gene: if 0, accept only mutations acting on their gene
         strict: should critical data discrepancies raise errors or be collected as statistics?
         tissues: list of tissues to be used
-        only_the_same_gene: accept only mutations acting on their gene (strong cis- acting)
         location: 'intronic' or 'exonic' - filters SPIDEX records
         filters: dict - filtering criteria for GTEx records.
     
@@ -412,9 +414,9 @@ def iterate_gtex_vs_spidex(strict=False, tissues=GTEX_TISSUES, location=None, fi
             print('gene %s not present in data' % ensembl_gene_id)
             continue
 
-        if only_the_same_gene:
-            if not (gene.start <= pos <= gene.end):
-                counter['not_within_gene'] += 1
+        if no_further_than_x_from_gene is not None:
+            if not (gene.start - no_further_than_x_from_gene <= pos <= gene.end + no_further_than_x_from_gene):
+                counter['not_within_requested_gene_span'] += 1
                 continue
 
         variant = SingleAltVariant(
@@ -448,6 +450,8 @@ def iterate_gtex_vs_spidex(strict=False, tissues=GTEX_TISSUES, location=None, fi
             counter['strand_mismatch'] += 1
         except Intronic:
             counter['intronic'] += 1
+        except ToManyRecords:
+            counter['to_many_records'] += 1
 
         if record:
             if gene.name != record.gene:

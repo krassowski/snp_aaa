@@ -1,5 +1,8 @@
 import datetime
 import time
+from collections import defaultdict
+
+from multiprocess import fast_gzip_read
 
 
 def decorator_maker(storage, decorator_name):
@@ -38,22 +41,24 @@ def select_poly_a_related_variants(variants):
     ]
 
 
-def group_variants(variants):
+def group_variants(variants, preserve_sources=False):
     unique = {}
     for variant in variants:
         key = (variant.chr_name, variant.chr_start, variant.chr_end, variant.ref, variant.chr_strand, ''.join(sorted(variant.alts)))
         if key in unique:
             unique[key].snp_id += ',' + variant.snp_id
+            if preserve_sources:
+                unique[key].source += ',' + variant.source
         else:
             unique[key] = variant
     return unique.values()
 
 
-def all_poly_a_variants(variants, merge_variants_with_multiple_id=True):
+def all_poly_a_variants(variants, merge_variants_with_multiple_id=True, preserve_sources=False):
     variants = variants.values()
 
     if merge_variants_with_multiple_id:
-        variants = group_variants(variants)
+        variants = group_variants(variants, preserve_sources)
 
     poly_a_related_variants = select_poly_a_related_variants(variants)
 
@@ -87,3 +92,28 @@ class execution_time:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.time.freeze()
+
+
+class IdMapper:
+
+    filename = None
+
+    def __init__(self, filename=None):
+        data = defaultdict(list)
+        if not filename:
+            filename = self.filename
+        if not filename:
+            raise ValueError
+        with fast_gzip_read(filename, processes=6) as f:
+            header = next(f)
+            for line in f:
+                try:
+                    ref_id, unknown_id = line.strip().split('\t')
+                    if unknown_id != 'n/a':
+                        data[ref_id].append(unknown_id)
+                except ValueError:
+                    pass
+        self.data = data
+
+    def map(self, ref_id):
+        return self.data[ref_id]
