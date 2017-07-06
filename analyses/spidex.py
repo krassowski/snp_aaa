@@ -1,22 +1,26 @@
 from __future__ import print_function
+
+import tabix
 from collections import OrderedDict, defaultdict, Counter
 from itertools import combinations
 from operator import itemgetter
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab, ggsave
+from recordclass import recordclass
+from scipy.stats import ks_2samp, pearsonr
 from tqdm import tqdm
 
 from analyses import report, reporter
-from scipy.stats import ks_2samp
-from helpers import all_poly_a_variants
-from settings import SPIDEX_LOCATION
 from cache import cacheable
-import tabix
-from recordclass import recordclass
-import numpy as np
-from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab, ggsave
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+from exceptions import StrandMismatch, Mismatch, Intronic, ToManyRecords, TranscriptMismatch
+from helpers import all_poly_a_variants
+from multiprocess import fast_gzip_read
+from settings import SPIDEX_LOCATION
+
 sns.set(color_codes=True)
 
 
@@ -107,29 +111,32 @@ def spidex_get_variant(tb, variant):
     return records
 
 
-class StrandMismatch(Exception):
-    pass
+class RefseqToEnsemblMapper:
+
+    def __init__(self):
+        data = defaultdict(list)
+        with fast_gzip_read('refseq_to_ensembl.gz', processes=6) as f:
+            for line in f:
+                refseq, ensembl = line.strip().split('\t')
+                if ensembl != 'n/a':
+                    data[refseq].append(ensembl)
+        self.data = data
+
+    def map(self, ncbi_transcript):
+        return self.data[ncbi_transcript]
 
 
-class Mismatch(Exception):
-    pass
-
-
-class Intronic(Exception):
-    pass
-
-
-class ToManyRecords(Exception):
-    pass
-
-
-def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False):
+def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False, test_transcript=False, test_strand=False, refseq_mapper=[]):
     """
     location: if on of (None, 'intronic', 'exonic') is given,
         only variants from such location will be returned;
     strict: should exceptions be raised on anything
         suspicious or should we show just warnings instead?
     """
+    if not refseq_mapper:
+        refseq_mapper.append(RefseqToEnsemblMapper())
+    else:
+        refseq_mapper = refseq_mapper[0]
 
     relevant_records = []
 
@@ -166,21 +173,30 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
             print(message)
             return []
 
-    if convert_strands:
-        strand = '1' if record.strand == '+' else '0'
-    else:
-        strand = record.strand
+    if test_transcript:
+        spidex_record_ensembl_ids = refseq_mapper.map(record.transcript)
+        variant_transcripts_ensembl_ids = [transcript.ensembl_id for transcript in variant.affected_transcripts]
 
-    if variant.chr_strand != strand:
-        repr_data = (variant.snp_id, variant.chr_strand, strand)
-        message = (
-            'Skipping record of id "%s": '
-            'incorrect strand %s in variant vs %s in record' %
-            repr_data
-        )
-        if strict:
-            raise StrandMismatch(message, repr_data, variant)
+        if not any(set(variant_transcripts_ensembl_ids).intersection(spidex_record_ensembl_ids)):
+            if strict:
+                raise TranscriptMismatch()
+            return []
+
+    if test_strand:
+        if convert_strands:
+            strand = '1' if record.strand == '+' else '0'
         else:
+            strand = record.strand
+
+        if variant.chr_strand != strand:
+            repr_data = (variant.snp_id, variant.chr_strand, strand)
+            message = (
+                'Skipping record of id "%s": '
+                'incorrect strand %s in variant vs %s in record' %
+                repr_data
+            )
+            if strict:
+                raise StrandMismatch(message, repr_data, variant)
             print(message)
             print(record.ref_allele)
             print(variant)
@@ -231,7 +247,6 @@ def spidex_from_list(variants_list):
     tb = tabix.open(SPIDEX_LOCATION)
 
     spidex_raw_report = []
-    spidex_raw_unique = {}
     spidex_report = []
     to_test_online = set()
     skipped_intronic = []
@@ -281,25 +296,6 @@ def spidex_from_list(variants_list):
                 if alt in to_skip:
                     continue
 
-                variant_data = Record(
-                    variant.chr_name,
-                    variant.chr_start,
-                    variant.chr_end,
-                    variant.ref,
-                    alt,
-                    None,#variant.ensembl_gene_stable_id,
-                    transcript.strand,
-                    transcript.ensembl_id,
-                    aaa_data.increased,
-                    aaa_data.decreased,
-                    aaa_data.change,
-                    aaa_data.before,
-                    aaa_data.after,
-                    variant.snp_id,
-                    None,
-                    None
-                )
-
                 relevant_record = None
 
                 try:
@@ -308,59 +304,62 @@ def spidex_from_list(variants_list):
                         variant,
                         alt,
                         convert_strands=True,
-                        strict=True
+                        strict=True,
+                        test_transcript=True
                     )
                 except StrandMismatch as e:
                     skipped_strand_mismatch.append(e.args[1])
                 except Intronic as e:
                     skipped_intronic.append(e.args[1])
                 except Mismatch:
+                    # TODO: it countrs different alts multiple times!!!! use some set or sth
                     counter['mismatch'] += 1
                 except ToManyRecords:
                     counter['multiple_records'] += 1
-
-                if not relevant_record:
-
-                    if alt and len(variant.ref) == len(alt) == 1:
-                        to_test_online.add(
-                            (
-                                variant.chr_name,
-                                variant.chr_start,
-                                variant.snp_id,
-                                variant.ref,
-                                alt
-                            )
-                        )
-
+                except TranscriptMismatch:
+                    counter['transcript_mismatch'] += 1
                 else:
+                    # save to test online only if no exception was raised
+                    if not relevant_record:
+                        if alt and len(variant.ref) == len(alt) == 1:
+                            to_test_online.add(
+                                (
+                                    variant.chr_name,
+                                    variant.chr_start,
+                                    variant.snp_id,
+                                    variant.ref,
+                                    alt
+                                )
+                            )
+
+                if relevant_record:
                     record = relevant_record
 
                     spidex_raw_report.append([variant.snp_id, alt, aaa_data, record])
-                    spidex_raw_unique[
-                        (
-                            variant.chr_name,
-                            variant.chr_start,
-                            variant.chr_end,
-                            variant.ref,
-                            alt,
-                            transcript.strand,
-                            aaa_data.increased,
-                            aaa_data.decreased,
-                            aaa_data.change,
-                            aaa_data.before,
-                            aaa_data.after,
-                            record.dpsi_max_tissue,
-                            record.dpsi_zscore
-                        )
-                    ] = [variant.snp_id, alt, aaa_data, record]
 
-                    variant_data.dpsi_max_tissue = record.dpsi_max_tissue
-                    variant_data.dpsi_zscore = record.dpsi_zscore
+                    variant_data = Record(
+                        variant.chr_name,
+                        variant.chr_start,
+                        variant.chr_end,
+                        variant.ref,
+                        alt,
+                        None,#variant.ensembl_gene_stable_id,
+                        transcript.strand,
+                        transcript.ensembl_id,
+                        aaa_data.increased,
+                        aaa_data.decreased,
+                        aaa_data.change,
+                        aaa_data.before,
+                        aaa_data.after,
+                        variant.snp_id,
+                        record.dpsi_max_tissue,
+                        record.dpsi_zscore
+                    )
 
                     spidex_report.append(variant_data)
 
     print(
-        'Following mutations were nor found in SPIDEX'
+        'Following mutations were not found in SPIDEX'
         ' but may be found manually in SPANR'
     )
     show_spanr_queries(to_test_online)
@@ -369,6 +368,7 @@ def spidex_from_list(variants_list):
     print('Analysed %s mutations.' % counter['variants'])
     print('Not indel and not SNV: %s' % counter['multiple_records'])
     print('Mismatches: %s' % counter['mismatch'])
+    print('Transcript Mismatches: %s' % counter['transcript_mismatch'])
 
     report(
         'spidex',
@@ -396,7 +396,7 @@ def spidex_from_list(variants_list):
         ['snp_id', 'chr_strand', 'SPIDEX_strand']
     )
 
-    return spidex_raw_unique
+    return spidex_raw_report.values()
 
 
 def divide_variants_by_poly_aaa(raw_unique_report):
@@ -431,12 +431,31 @@ def new_figure():
         plt.figure(max(figures) + 1)
 
 
+def prepare_plot(variants, variant_feature, spidex_feature):
+    features = sorted(set([x[variant_feature] for x in variants['all']]))
+
+    data_dict = OrderedDict(
+        (
+            feature,
+            np.array([
+                variant_data[spidex_feature]
+                for variant_data in variants['all']
+                if variant_data[variant_feature] == feature
+            ])
+        )
+        for feature in features
+    )
+
+    df = prepare_data_frame(data_dict)
+
+    return df
+
+
 def plot_aaa_vs_spidex(variants_groups):
 
     variants = variants_groups
 
     aaa_changes = sorted(set([x['change'] for x in variants['all']]))
-    aaa_lengths = sorted(set([x['new_aaa_length'] for x in variants['all']]))
 
     def density_plot(by='dpsi_zscore', categorical=True):
 
@@ -493,79 +512,75 @@ def plot_aaa_vs_spidex(variants_groups):
     p = density_plot(categorical=False)
     save_plot(p)
 
-    data_dict = OrderedDict(
-        (
-            change,
-            np.array([
-                variant_data['dpsi_zscore']
-                for variant_data in variants['all']
-                if variant_data['change'] == change
-            ])
-        )
-        for change in aaa_changes
-    )
-
     # seaborn
     # https://seaborn.pydata.org/tutorial/regression.html
     # http://seaborn.pydata.org/tutorial/categorical.html
 
-    df = prepare_data_frame(data_dict)
+    df = prepare_plot(variants, 'change', 'dpsi_zscore')
 
     p = sns.lmplot(x='variable', y='value', data=df, x_estimator=np.mean)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean | change')
+    p.ax.set_title('Regression: Poly AAA mutations and dPSI z-score, estimator=mean | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation')
-    p.ax.set_ylabel('PSI z-score')
+    p.ax.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(p)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered | change')
+    p.ax.set_title('Regression: Poly AAA mutations and dPSI z-score, observations visually jittered | change')
     p.ax.set_xlabel('AAA track length change resulting from given mutation [noised with visual jitter]')
-    p.ax.set_ylabel('PSI z-score')
+    p.ax.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(p)
 
     g = sns.boxplot(x='variable', y='value', data=df)
-    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | change')
+    g.axes.set_title('Boxplot: Poly AAA mutations and dPSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
-    g.set_ylabel('PSI z-score')
+    g.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(g)
 
     g = sns.violinplot(x='variable', y='value', data=df)
     g.axes.set_title('Violin: Poly AAA mutations and PSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
-    g.set_ylabel('PSI z-score')
+    g.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(g)
 
-    data_dict = OrderedDict(
-        (
-            length,
-            np.array([
-                variant_data['dpsi_zscore']
-                for variant_data in variants['all']
-                if variant_data['new_aaa_length'] == length
-            ])
-        )
-        for length in aaa_lengths
-    )
-    df = prepare_data_frame(data_dict)
+    df = prepare_plot(variants, 'new_aaa_length', 'max_dpsi')
+
+    g = sns.boxplot(x='variable', y='value', data=df)
+    g.axes.set_title('Boxplot: Poly AAA mutations and max dPSI | length')
+    g.set_xlabel('AAA track length resulting from given mutation')
+    g.set_ylabel('max $\Delta \Psi$')
+    save_plot(g)
+    df = prepare_plot(variants, 'change', 'max_dpsi')
+
+    g = sns.boxplot(x='variable', y='value', data=df)
+    g.axes.set_title('Boxplot: Poly AAA mutations and max dPSI | change')
+    g.set_xlabel('AAA track length change resulting from given mutation')
+    g.set_ylabel('max $\Delta \Psi$')
+    save_plot(g)
+
+    df = prepare_plot(variants, 'new_aaa_length', 'dpsi_zscore')
+
+    dfc = df.dropna()
+    coef, p_value = pearsonr(dfc['variable'], dfc['value'])
+    print('Pearson\'s r', coef)
+    print('P-value', p_value)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_estimator=np.mean)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, estimator=mean | length')
+    p.ax.set_title('Regression: Poly AAA mutations and dPSI z-score, estimator=mean | length')
     p.ax.set_xlabel('AAA track length resulting from given mutation')
-    p.ax.set_ylabel('PSI z-score')
+    p.ax.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(p)
 
     p = sns.lmplot(x='variable', y='value', data=df, x_jitter=0.25)
-    p.ax.set_title('Regression: Poly AAA mutations and PSI z-score, observations visually jittered | length')
+    p.ax.set_title('Regression: Poly AAA mutations and dPSI z-score, observations visually jittered | length')
     p.ax.set_xlabel('AAA length resulting from given mutation [noised with visual jitter]')
-    p.ax.set_ylabel('PSI z-score')
+    p.ax.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(p)
 
     g = sns.boxplot(x='variable', y='value', data=df)
-    g.axes.set_title('Boxplot: Poly AAA mutations and PSI z-score | length')
+    g.axes.set_title('Boxplot: Poly AAA mutations and dPSI z-score | length')
     g.set_xlabel('AAA track length resulting from given mutation')
-    g.set_ylabel('PSI z-score')
+    g.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(g)
-
 
 
 @reporter
@@ -580,19 +595,6 @@ def poly_aaa_vs_spidex(variants_by_gene):
     plot_aaa_vs_spidex(variants_groups)
     print('ks test')
     spidex_aaa_ks_test(variants_groups, already_divided=True)
-
-
-@reporter
-def all_variants_vs_spidex(variants_by_gene):
-    """The same as poly_aaa_vs_spidex but for all variants, not only poly(A) related."""
-    raise NotImplementedError
-
-    all_variants = []
-
-    for gene_variants in variants_by_gene.values():
-        all_variants.extend(gene_variants)
-
-    # plot_aaa_vs_spidex(all_variants)
 
 
 @cacheable

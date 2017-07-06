@@ -8,12 +8,19 @@ from tqdm import tqdm
 
 from cache import args_aware_cacheable
 
-from multiprocessing import get_context
+from multiprocessing import get_context, cpu_count
 
-ctx = get_context('spawn')
+ctx = get_context('fork')
+
+
+def get_max_advised_processes_cnt():
+    return max(cpu_count() - 1, 1)
+
 
 @contextmanager
 def fast_gzip_read(file_name, processes=4):
+    if processes == 'all':
+        processes = get_max_advised_processes_cnt()
     command = 'zcat %s' if processes == 1 else 'unpigz -p ' + str(processes) + ' -c %s'
     p = subprocess.Popen(
         (command % file_name).split(' '),

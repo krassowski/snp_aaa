@@ -50,5 +50,5 @@ def summarize_poly_aaa_variants(variants_by_gene):
         columns
     )
 
-    print('Unique variants: %s' % len({(v.chr, v.start, v.end, v.ref) for v in aaa_variants}))
-    print('Variants identifiers: %s' % len({v.snp_id for v in aaa_variants}))
+    print('Unique variants: %s' % len(aaa_variants))
+    print('Variants identifiers: %s' % sum(v.snp_id.count(',') + 1 for v in aaa_variants))

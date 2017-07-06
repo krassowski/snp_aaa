@@ -167,7 +167,7 @@ def iterate_over_expression(
         file_path = os.path.join(path, file_name)
         print('Loading', file_name)
 
-        with fast_gzip_read(file_path) as file_object:
+        with fast_gzip_read(file_path, processes='all') as file_object:
 
             header_line = next(file_object)
             header = dict()

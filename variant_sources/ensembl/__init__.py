@@ -6,7 +6,7 @@ from collections import defaultdict
 from tqdm import tqdm
 
 from commands import SourceSubparser
-from multiprocess import fast_gzip_read, count_lines
+from multiprocess import fast_gzip_read, count_lines, get_manager
 from variant_sources import variants_source
 from variant_sources.ensembl.load_transcript_variant_pairs import load_poly_a_transcript_variant_pairs
 from variant_sources.ensembl.load_varaints_details import load_variants_details
@@ -124,14 +124,6 @@ ensembl_args.add_command(
 )
 
 
-class ToFewAlleles(Exception):
-    pass
-
-
-class IncorrectAllele(Exception):
-    pass
-
-
 def load_variation_sources(loc):
     sources = {}
     # 'source_id', 'name', 'version', 'description', 'url', 'type', 'somatic_status', 'data_types'
@@ -165,12 +157,13 @@ def load_transcript_strands(loc):
     return transcript_strand
 
 
-def aggregate_transcripts(transcript_variant_pairs):
-    print('Aggregating transcripts')
-    transcripts_by_id = defaultdict(list)
+def aggregate_by_variant(transcript_variant_pairs):
+    print('Aggregating variant transcript pairs')
+    variants_by_id = defaultdict(list)
     for internal_variant_id, transcript, alleles in tqdm(transcript_variant_pairs):
-        transcripts_by_id[internal_variant_id].append((transcript, alleles))
-    return transcripts_by_id
+        variants_by_id[internal_variant_id].append((transcript, alleles))
+
+    return variants_by_id
 
 
 @variants_source
@@ -201,8 +194,18 @@ def ensembl(args):
     accepted_transcript_variant_pairs, to_check_transcript_variant_pairs = transcript_variant_pairs
 
     # those two can run in two separate processes but both have to be single-threaded.
-    accepted_transcripts_by_variant_id = aggregate_transcripts(accepted_transcript_variant_pairs)
-    to_check_transcripts_by_variant_id = aggregate_transcripts(to_check_transcript_variant_pairs)
+    accepted_transcripts_by_variant_id = aggregate_by_variant(accepted_transcript_variant_pairs)
+    to_check_transcripts_by_variant_id = aggregate_by_variant(to_check_transcript_variant_pairs)
+
+    # having a dict passed to each instance can use a lot of memory; having a proxy slows down access
+    # using proxy dict for the bigger dict and normal dict for the smaller one seems like a good trade-of
+    # there are usually more mutations to check than those which are accepted:
+    manager = get_manager()
+    to_check_transcripts_by_variant_id = manager.dict(to_check_transcripts_by_variant_id)
+
+    del accepted_transcript_variant_pairs
+    del to_check_transcript_variant_pairs
+    del transcript_variant_pairs
 
     # multiple threads:
     variants_by_id = load_variants_details(

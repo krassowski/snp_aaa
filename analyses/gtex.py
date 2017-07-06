@@ -1,6 +1,9 @@
 import sys
 
+from scipy.stats import spearmanr
+
 from analyses import report, reporter
+from cache import cacheable
 from commands import AnalysisSubparser
 from helpers import select_poly_a_related_variants, all_poly_a_variants
 from expression_database import ExpressionDatabase, ExpressedGenes, import_expressed_genes
@@ -42,12 +45,12 @@ def reload_gtex(value, args):
     )
 
 
-@reporter
-def gtex_over_api(variants_by_gene):
+@cacheable
+def get_data_from_ensembl_api(variants):
     import requests
     api_report = []
 
-    for variant in all_poly_a_variants(variants_by_gene):
+    for variant in all_poly_a_variants(variants, merge_variants_with_multiple_id=False):
 
         server = 'http://rest.ensembl.org'
         # server = 'http://grch37.rest.ensembl.org/' GRCH 37 has no eqtls implemented
@@ -75,7 +78,9 @@ def gtex_over_api(variants_by_gene):
                         for alt, aaa_data in transcript.poly_aaa.items():
                             report_chunk = (
                                 variant.snp_id,
-                                datum['tissue'], datum['value'], datum['gene'],
+                                datum['tissue'],
+                                datum['value'],
+                                datum['gene'],
                                 aaa_data.increased,
                                 aaa_data.decreased,
                                 aaa_data.change,
@@ -90,21 +95,17 @@ def gtex_over_api(variants_by_gene):
                             )
                             api_report += [report_chunk]
 
-        except Exception:
-            pass
-    """
+        except Exception as e:
+            print(e)
+    return api_report
 
-    report(
-        'API expression table for variants (based on data from gtex)',
-        ['\t'.join(map(str, line)) for line in gtex_report],
-        [
-            'variant', 'expression+', 'expression-', 'trend',
-            'aaa+', 'aaa-', 'aaa_change',
-            'chrom', 'pos', 'ref', 'alt',
-            'strand', 'transcript', 'cds_start', 'cds_end'
-        ]
-    )
-    """
+
+@reporter
+def gtex_over_api(variants):
+
+    api_report = get_data_from_ensembl_api.load_or_create(variants)
+
+    summarize_tissue_eqtl_aaa_correlation(api_report)
 
     report(
         'API expression table for variants with tissues (based on data from gtex)',
@@ -116,6 +117,15 @@ def gtex_over_api(variants_by_gene):
             'strand', 'transcript', 'cds_start', 'cds_end'
         ]
     )
+
+
+def summarize_tissue_eqtl_aaa_correlation(data):
+    print('All:')
+    print(spearmanr([a[6] for a in data], [a[2] for a in data]))
+    print('By tissues:')
+    for tissue in set([a[1] for a in data]):
+        tissue_data = [a for a in data if a[1] == tissue]
+        print(tissue, spearmanr([a[6] for a in tissue_data], [a[2] for a in tissue_data]))
 
 
 @reporter
@@ -133,7 +143,6 @@ def poly_aaa_vs_expression(variants_by_gene):
             return True
 
     gtex_report = []
-    gtex_report_by_genes = []
     gtex_report_with_tissue = []
 
     aaa_variants_list = list(all_poly_a_variants(variants_by_gene))
@@ -272,6 +281,8 @@ def poly_aaa_vs_expression(variants_by_gene):
             'strand', 'transcript', 'cds_start', 'cds_end'
         ]
     )
+
+    summarize_tissue_eqtl_aaa_correlation(gtex_report_with_tissue)
 
     #report(
     #    'Expression table for genes (based on data from GTEx)',

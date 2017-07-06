@@ -1,15 +1,17 @@
 import math
 import tabix
+from collections import Counter
 
 import numpy as np
 import subprocess
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, spearmanr
 from tqdm import tqdm
 
 import settings
 from analyses import reporter, report
 from analyses.motifs import get_cds_positions, prepare_files_with_motifs, find_motifs, load_refseq_sequences
 from analyses.spidex import convert_to_strand
+from exceptions import StrandMismatch, Intronic
 from analyses.spidex import spidex_get_variant, choose_record
 from cache import cacheable
 from expression_database import ExpressedGenes, iterate_over_expression
@@ -302,7 +304,7 @@ def same_tissues_gtex_on_spidex(_):
         'Brain_Nucleus_accumbens_basal_ganglia',
         'Brain_Putamen_basal_ganglia',
         'Breast_Mammary_Tissue',
-        # 'Cells_EBV-transformed_lymphocytes', not sure if it's better to include or not
+        'Cells_EBV-transformed_lymphocytes', # not sure if it's better to include or not
         'Colon_Sigmoid',
         'Colon_Transverse',
         'Heart_Atrial_Appendage',
@@ -317,7 +319,8 @@ def same_tissues_gtex_on_spidex(_):
 
     ]
 
-    for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues):
+    #for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues, strict=True, only_the_same_gene=True):
+    for variant, tissue, slope, spidex_record, g in iterate_gtex_vs_spidex(tissues=spidex_tissues, strict=True):
         slope = float(slope)
         z_score = float(spidex_record.dpsi_zscore)
 
@@ -329,17 +332,28 @@ def same_tissues_gtex_on_spidex(_):
             effect_sizes[variant] = slope
             assert z_score == z_scores[variant]
 
-    pearson_coef, p_value = pearsonr(list(effect_sizes.values()), list(z_scores.values()))
-    print('Pearson\'s r; p-value')
-    print(pearson_coef, p_value)
+    print('Mutations mapped:', len(effect_sizes))
+    print('Spidex records:')
+    print('GTEx records from selected tissues:', count_all(spidex_tissues))
+    coef, p_value = pearsonr(list(effect_sizes.values()), list(z_scores.values()))
+    print('Pearson\'s r', coef)
+    print('P-value', p_value)
+    coef, p_value = spearmanr(list(effect_sizes.values()), list(z_scores.values()))
+    print('Spearman\'s r', coef)
+    print('P-value', p_value)
 
 
-def iterate_gtex_vs_spidex(tissues=GTEX_TISSUES, **kwargs):
+def iterate_gtex_vs_spidex(strict=False, tissues=GTEX_TISSUES, location=None, filters=None, only_the_same_gene=False):
     """
     Yield records representing GTEx-SPIDEX pairs which are matching
     (the same position, reference and alternative alleles).
-    
-    All keyword arguments will be used as filtering criteria for records.
+
+    Args:
+        strict: should critical data discrepancies raise errors or be collected as statistics?
+        tissues: list of tissues to be used
+        only_the_same_gene: accept only mutations acting on their gene (strong cis- acting)
+        location: 'intronic' or 'exonic' - filters SPIDEX records
+        filters: dict - filtering criteria for GTEx records.
     
     In spidex there are only SNPs (single!)
 
@@ -363,9 +377,9 @@ def iterate_gtex_vs_spidex(tissues=GTEX_TISSUES, **kwargs):
     """
 
     # Use "Brain cortex" for basic tests - it's very small
-    # tissues_list = ['Brain_Cortex']
+    # tissues = ['Brain_Cortex']
     # Use "Adipose Subcutaneous" for larger tests
-    # tissues_list = ['Adipose_Subcutaneous']
+    # tissues = ['Adipose_Subcutaneous']
 
     path = create_path_for_genes_db(tissues)
     genes = ExpressedGenes(path)
@@ -380,54 +394,71 @@ def iterate_gtex_vs_spidex(tissues=GTEX_TISSUES, **kwargs):
 
     count = count_all(tissues)
 
-    for mutation_code, tissue, slope, gene in tqdm(iterate_over_expression(tissues), total=count):
+    counter = Counter()
+
+    for mutation_code, tissue, slope, ensembl_gene_id in tqdm(iterate_over_expression(tissues), total=count):
         chrom, pos, ref, alt, _ = mutation_code.split('_')
 
         # In spidex there are only SNPs (single!)
         if len(ref) != 1 or len(alt) != 1:
+            counter['not_single'] += 1
             continue
 
         pos = int(pos)
 
-        g = Gene(*genes[gene])
+        gene = Gene(*genes[ensembl_gene_id])
 
-        if not g:
-            print('gene %s not present in data' % gene)
+        if not gene:
+            print('gene %s not present in data' % ensembl_gene_id)
             continue
 
-        # only genes overlapping with given mutation
-        if not (g.start <= pos <= g.end):
-            continue
+        if only_the_same_gene:
+            if not (gene.start <= pos <= gene.end):
+                counter['not_within_gene'] += 1
+                continue
 
         variant = SingleAltVariant(
             chr_name=chrom,
             chr_start=pos,
             chr_end=pos,
-            chr_strand=g.strand,
+            chr_strand=gene.strand,
             snp_id='-',
-            ref=convert_to_strand(ref, g.strand),
-            alt=convert_to_strand(alt, g.strand),
-            gene=gene
+            ref=convert_to_strand(ref, gene.strand),
+            alt=convert_to_strand(alt, gene.strand),
+            gene=ensembl_gene_id
         )
 
         records = spidex_get_variant(tb, variant)
-        records = [
-            record
-            for record in records
-            if all(
-                getattr(record, key) == value
-                for key, value in kwargs.items()
-            )
-        ]
-        record = choose_record(records, variant, variant.alt, strict=False)
+        if filters:
+            records = [
+                record
+                for record in records
+                if all(
+                    getattr(record, key) == value
+                    for key, value in filters.items()
+                )
+            ]
+
+        record = None
+
+        try:
+            # if genes are the same there is no need to test strands, but its better to double check
+            record = choose_record(records, variant, variant.alt, strict=strict, test_strand=True, location=location)
+        except StrandMismatch:
+            counter['strand_mismatch'] += 1
+        except Intronic:
+            counter['intronic'] += 1
 
         if record:
-            if g.name != record.gene:
-                # TODO
-                # print('Gene name mismatch %s %s!' % (g.name, record.gene))
+            if gene.name != record.gene:
+                counter['gene_name_mismatch'] += 1
                 continue
 
             variant.refseq_transcript = record.transcript
 
-            yield variant, tissue, slope, record, g
+            yield variant, tissue, slope, record, gene
+        else:
+            counter['Not found in SPIDEX'] += 1
 
+    if strict:
+        print(counter)

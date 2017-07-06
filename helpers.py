@@ -38,8 +38,24 @@ def select_poly_a_related_variants(variants):
     ]
 
 
-def all_poly_a_variants(variants):
-    poly_a_related_variants = select_poly_a_related_variants(variants.values())
+def group_variants(variants):
+    unique = {}
+    for variant in variants:
+        key = (variant.chr_name, variant.chr_start, variant.chr_end, variant.ref, variant.chr_strand, ''.join(sorted(variant.alts)))
+        if key in unique:
+            unique[key].snp_id += ',' + variant.snp_id
+        else:
+            unique[key] = variant
+    return unique.values()
+
+
+def all_poly_a_variants(variants, merge_variants_with_multiple_id=True):
+    variants = variants.values()
+
+    if merge_variants_with_multiple_id:
+        variants = group_variants(variants)
+
+    poly_a_related_variants = select_poly_a_related_variants(variants)
 
     for variant in poly_a_related_variants:
         yield variant
