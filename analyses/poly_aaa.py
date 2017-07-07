@@ -23,13 +23,17 @@ def summarize_poly_aaa_variants(variants):
 
     Record = recordclass('RecordPolyA', columns)
 
-    aaa_variants = []
+    aaa_records = []
+    aaa_variants = set()
+    up_variants = {}
+    down_variants = {}
     cosmic_variants = []
     all_variants_ids = []
     variants_sources = Counter()
+    transcripts = set()
 
     for variant in all_poly_a_variants(variants, preserve_sources=True):
-
+        print(variant)
         if 'COSMIC' in variant.source:
             cosmic_variants.extend(variant.snp_id.split(','))
         all_variants_ids.extend(variant.snp_id.split(','))
@@ -57,14 +61,22 @@ def summarize_poly_aaa_variants(variants):
                     transcript.cds_end
                 )
 
-                aaa_variants.append(record)
+                if aaa_data.increased:
+                    up_variants[variant] = True
+                if aaa_data.decreased:
+                    down_variants[variant] = True
+                transcripts.add(transcript.ensembl_id)
+
+                aaa_records.append(record)
+
+            aaa_variants.add(variant)
 
         for source in set(variant.source.split(',')):
             variants_sources[source] += 1
 
     report(
         'poly aaa increase and decrease by variants',
-        aaa_variants,
+        aaa_records,
         columns
     )
     report(
@@ -81,5 +93,9 @@ def summarize_poly_aaa_variants(variants):
         all_variants_ids
     )
 
+    print('Affected transcripts: %s' % len(transcripts))
+    print('Down variants: %s' % len(down_variants))
+    print('Up variants: %s' % len(up_variants))
     print('Unique variants: %s' % len(aaa_variants))
     print('Variants identifiers: %s' % sum(v.snp_id.count(',') + 1 for v in aaa_variants))
+    print(variants_sources)
