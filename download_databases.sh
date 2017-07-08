@@ -2,3 +2,4 @@
 ./download_ensembl.sh
 ./download_raw_ensembl.sh
 ./download_ncbi.sh
+./ucsc/download.sh

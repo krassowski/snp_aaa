@@ -60,4 +60,6 @@ get_from_ucsc sequences.fasta.gz <<-QUERY
 	hgta_doGenePredSequence:submit
 QUERY
 
+
 gunzip sequences.fasta.gz
+rm ucsc_download.sh
