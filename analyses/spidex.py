@@ -112,7 +112,7 @@ def spidex_get_variant(tb, variant):
 
 class RefseqToEnsemblMapper(IdMapper):
 
-    filename = 'refseq_to_ensembl.gz'
+    filename = 'ucsc/refseq_to_ensembl.gz'
 
 
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False, test_transcript=False, test_strand=False, refseq_mapper=[]):

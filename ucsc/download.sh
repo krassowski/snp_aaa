@@ -1,8 +1,63 @@
 #!/usr/bin/env bash
-#Note: hgsid may require an update each time when downloading data. just open the website and gra it from cookies/request
-wget http://genome.ucsc.edu/cgi-bin/hgTables --post-data "hgsid=587035373_LgpTD7UIYEEaePMt5dz5SQF74Oie&jsh_pageVertPos=0&clade=mammal&org=Human&db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_regionType=genome&position=chr21%3A33031597-33041570&hgta_outputType=primaryTable&boolshad.sendToGalaxy=0&boolshad.sendToGreat=0&boolshad.sendToGenomeSpace=0&hgta_outFileName=hg19_refGene_table&hgta_compressType=none&hgta_doTopSubmit=get+output"
+
+wget https://gist.githubusercontent.com/krassowski/8c9710fa20ac944ec8d47ac4a0ac5b4a/raw/444fcc584bc10b5e504c05a6063a281cee808c9c/ucsc_download.sh
+source ucsc_download.sh
 
 
-wget http://genome.ucsc.edu/cgi-bin/hgTables --post-data "hgsid=587035373_LgpTD7UIYEEaePMt5dz5SQF74Oie&jsh_pageVertPos=0&clade=mammal&org=Human&db=hg19&hgta_group=genes&hgta_track=refGene&hgta_table=refGene&hgta_regionType=genome&position=chr21%3A33031597-33041570&hgta_outputType=sequence&boolshad.sendToGalaxy=0&boolshad.sendToGreat=0&boolshad.sendToGenomeSpace=0&hgta_outFileName=hg19_refGene_table&hgta_compressType=none&hgta_doTopSubmit=get+output" -O temp
-wget "http://genome.ucsc.edu/cgi-bin/hgTables?hgsid=587035373_LgpTD7UIYEEaePMt5dz5SQF74Oie&hgta_geneSeqType=mRNA&hgta_doGenePredSequence=submit" -O sequences.fasta
-rm temp
+get_from_ucsc /dev/null <<-QUERY
+	hgta_database:hg19
+	hgta_table:knownToRefSeq
+	hgta_fs.linked.hg19.knownToEnsembl:on
+	hgta_outFileName:output
+	hgta_compressType:gzip
+	hgta_doSelectFieldsMore:allow selection from checked tables
+QUERY
+
+
+get_from_ucsc refseq_to_ensembl.tsv.gz <<-QUERY
+	hgta_database:hg19
+	hgta_table:knownToRefSeq
+	hgta_fs.check.hg19.knownToRefSeq.value:on
+	hgta_fs.check.hg19.knownToEnsembl.value:on
+	hgta_doPrintSelectedFields:get output
+QUERY
+
+unset sid
+
+get_from_ucsc ref_gene.tsv.gz <<-QUERY
+	clade:mammal
+	org:Human
+	db:hg19
+	hgta_group:genes
+	hgta_track:refGene
+	hgta_table:refGene
+	hgta_regionType:genome
+	hgta_outputType:primaryTable
+	hgta_outFileName:output
+	hgta_compressType:gzip
+	hgta_doTopSubmit:get output
+QUERY
+
+unset sid
+
+get_from_ucsc /dev/null <<-QUERY
+	clade:mammal
+	org:Human
+	db:hg19
+	hgta_group:genes
+	hgta_track:refGene
+	hgta_table:refGene
+	hgta_regionType:genome
+	hgta_outputType:sequence
+	hgta_outFileName:hg19_refGene_table
+	hgta_compressType:gzip
+	hgta_doTopSubmit:get output
+QUERY
+
+
+get_from_ucsc sequences.fasta.gz <<-QUERY
+	hgta_geneSeqType:mRNA
+	hgta_doGenePredSequence:submit
+QUERY
+
+gunzip sequences.fasta.gz

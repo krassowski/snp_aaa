@@ -1,13 +1,14 @@
 from pyfaidx import Fasta
 
 import multiprocess
+from helpers import take_transcript_id_without_version
 from jit import jit
+from models import AffectedTranscript
 from multiprocess import get_manager
 from parse_variants import OFFSET
 from settings import TRANSCRIPT_DB_PATH
-from models import AffectedTranscript
-from variant_sources.ensembl.poly_aaa import get_poly_aaa, show_context
 from variant_sources.ensembl.allele_parsing import AlleleMismatch, parse_alleles
+from variant_sources.ensembl.poly_aaa import get_poly_aaa, show_context
 from vcf_parser import ParsingError
 
 headers = [
@@ -177,21 +178,6 @@ def load_poly_a_transcript_variant_pairs(path, transcript_strand, accepted_conse
     )
 
     return accepted_transcript_variant_pairs, to_check_transcript_variant_pairs
-
-
-@jit
-def take_transcript_id_without_version(full_id):
-    """Returns transcript id without version and everything which is after version separating comma.
-
-    Example:
-        Input: ESNT_0001.4
-        Output: ESNT_0001
-
-        Input: ESNT_0002.2.some_annotation
-        Output: ESNT_0002
-
-    """
-    return full_id.split('.')[0]
 
 
 @jit

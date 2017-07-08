@@ -1,14 +1,20 @@
-import os
 import subprocess
-from collections import defaultdict
-from os.path import dirname
+from contextlib import contextmanager
 
+from pathlib import Path
+
+from pyfaidx import Fasta
 from tqdm import tqdm
+
+from multiprocess import fast_gzip_read
+from helpers import take_transcript_id_without_version
+
+refseq_sequences_fasta = 'ucsc/sequences.fasta'
 
 
 def get_cds_positions(transcripts):
     cds_positions = {}
-    with open('ucsc/hgTables') as f:
+    with fast_gzip_read('ucsc/ref_gene.tsv.gz') as f:
         header = next(f)
         # assert header == '#bin    name    chrom   strand  txStart txEnd   cdsStart        cdsEnd  exonCount       exonStarts      exonEnds        score   name2   cdsStartStat cdsEndStat       exonFrames'
         for line in f:
@@ -22,12 +28,59 @@ def get_cds_positions(transcripts):
 
 
 def dump_sequences(handles, nearby, control):
-    handles['variant_flanked_file'].write('\n'.join(nearby))
-    handles['control_unique_file'].write('\n'.join(list(set(control))))
-    handles['control_redundant_file'].write('\n'.join(control))
+    handles['variant_flanked'].write('\n'.join(nearby))
+    handles['control_unique'].write('\n'.join(list(set(control))))
+    handles['control_redundant'].write('\n'.join(control))
 
-    for handle in handles.values():
-        handle.close()
+
+class PartitionedFiles:
+
+    def __init__(self, paths, write_callback, slice_by, data_buffers):
+        self.part = 0
+        self.paths = paths
+        self.handles = {}
+        self.write_callback = write_callback
+        self.slice_by = slice_by
+        self.data_buffers = data_buffers
+
+        self.open_handles()
+
+    def dump(self):
+        self.write_callback(self.handles, *self.data_buffers)
+
+        # clean buffers
+        for buffer in self.data_buffers:
+            buffer.reset()
+
+        # move on
+        self.part += 1
+
+        # open new handles
+        self.close_handles()
+        self.open_handles()
+
+    def dump_if_needed(self, i):
+        if self.slice_by and (i + 1) % self.slice_by == 0:
+            self.dump()
+
+    def open_handles(self):
+        self.handles = {}
+
+        for name, path in self.paths.items():
+            file_name = '%s_part_%s' % (path.as_posix(), self.part)
+            self.handles[name] = open(file_name, 'w')
+
+    def close_handles(self):
+        for handle in self.handles:
+            handle.close()
+
+
+@contextmanager
+def partitioned_files(paths, slice_by, write, *args):
+    files = PartitionedFiles(paths, write, slice_by, *args)
+    yield files
+    files.dump()
+    files.close_handles()
 
 
 def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=None, max_sequence_length=None):
@@ -49,51 +102,34 @@ def prepare_files_with_motifs(variants, dir_name, control_sequences, slice_by=No
         some_sequence = variants[0].sequence
         slice_by = min(slice_by or 0, max_sequence_length // len(some_sequence) - 1)
 
-    location = 'motifs_discovery/' + dir_name
+    location = Path('motifs_discovery') / dir_name
 
-    if not os.path.exists(location):
-        os.makedirs(location)
-
-    location += '/'
+    location.mkdir(exist_ok=True)
 
     sequences_paths = {
-        'variant_flanked_file': location + 'nearby.fa',
-        'control_unique_file': location + 'control.fa',
-        'control_redundant_file': location + 'control_not_unique.fa'
+        'variant_flanked': location / 'nearby.fa',
+        'control_unique': location / 'control.fa',
+        'control_redundant': location / 'control_not_unique.fa'
     }
 
     nearby = []
     control = []
 
-    part = None
+    with partitioned_files(sequences_paths, slice_by, dump_sequences, [nearby, control]) as files:
+        for i, variant in tqdm(enumerate(variants), total=len(variants)):
+            files.dump_if_needed(i)
 
-    if slice_by or max_sequence_length:
-        part = 0
+            control.append('>%s\n%s' % (
+                variant.refseq_transcript,
+                control_sequences[variant.refseq_transcript]    # this is full sequence of given gene
+            ))
 
-    def create_handles(part):
-        return {
-            name: open('%s_part_%s' % (file_name, part) if part is not None else file_name, 'w')
-            for name, file_name in sequences_paths.items()
-        }
-
-    handles = create_handles(part)
-
-    for i, variant in tqdm(enumerate(variants), total=len(variants)):
-        if slice_by and (i + 1) % slice_by == 0:
-            dump_sequences(handles, nearby, control)
-            part += 1
-            handles = create_handles(part)
-
-            nearby = []
-            control = []
-
-        full_gene_sequence = control_sequences[variant.refseq_transcript]
-        control.append('>%s\n%s' % (variant.refseq_transcript, full_gene_sequence))
-
-        sequence_nearby_variant = variant.sequence
-        nearby.append('>%s_%s_%s\n%s' % (variant.chr_name, variant.chr_start, variant.alts[0], sequence_nearby_variant))
-
-    dump_sequences(handles, nearby, control)
+            nearby.append('>%s_%s_%s\n%s' % (
+                variant.chr_name,
+                variant.chr_start,
+                variant.alts[0],
+                variant.sequence    # this is sequence in place of mutation +/- offset
+            ))
 
     return sequences_paths
 
@@ -114,11 +150,10 @@ def find_motifs(motifs_files, min_motif_length, max_motif_length, description=''
     if program == 'meme' and use_control:
         raise Exception('Cannot use control sequences with meme. Change use_control to False.')
 
-    variants_path = motifs_files['variant_flanked_file']
-    control_path = motifs_files['control_unique_file']
+    variants_path = motifs_files['variant_flanked']
+    control_path = motifs_files['control_unique']
 
-    files_path = dirname(variants_path)
-    output_path = files_path + '/' + 'dreme_out'
+    output_path = variants_path.parent / 'dreme_out'
 
     if program == 'dreme':
         args = (
@@ -148,6 +183,8 @@ def find_motifs(motifs_files, min_motif_length, max_motif_length, description=''
             '-oc', output_path,
             # '-revcomp' is not deactivated by default (complementary to norc)
         ]
+    else:
+        raise ValueError('Unsupported program: %s' % program)
 
     args = list(map(str, args))
     print('Executing', ' '.join(args))
@@ -157,13 +194,5 @@ def find_motifs(motifs_files, min_motif_length, max_motif_length, description=''
     return result
 
 
-def load_refseq_sequences(transcripts):
-    db = defaultdict(str)
-    with open('ucsc/sequences.fasta') as f:
-        refseq = None
-        for line in f:
-            if line.startswith('>'):
-                refseq = line[1:].split('.')[0].rstrip()
-            else:
-                db[refseq] += line.rstrip()
-    return db
+def load_refseq_sequences():
+    return Fasta(refseq_sequences_fasta, key_function=take_transcript_id_without_version)

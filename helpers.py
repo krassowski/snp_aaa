@@ -2,6 +2,7 @@ import datetime
 import time
 from collections import defaultdict
 
+from jit import jit
 from multiprocess import fast_gzip_read
 
 
@@ -47,6 +48,9 @@ def group_variants(variants, preserve_sources=False):
         key = (variant.chr_name, variant.chr_start, variant.chr_end, variant.ref, variant.chr_strand, ''.join(sorted(variant.alts)))
         if key in unique:
             unique[key].snp_id += ',' + variant.snp_id
+            unique[key].affected_transcripts = list(set(
+                unique[key].affected_transcripts + variant.affected_transcripts
+            ))
             if preserve_sources:
                 unique[key].source += ',' + variant.source
         else:
@@ -117,3 +121,18 @@ class IdMapper:
 
     def map(self, ref_id):
         return self.data[ref_id]
+
+
+@jit
+def take_transcript_id_without_version(full_id):
+    """Returns transcript id without version and everything which is after version separating comma.
+
+    Example:
+        Input: ESNT_0001.4
+        Output: ESNT_0001
+
+        Input: ESNT_0002.2.some_annotation
+        Output: ESNT_0002
+
+    """
+    return full_id.split('.')[0]

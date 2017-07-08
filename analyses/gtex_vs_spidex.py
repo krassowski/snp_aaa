@@ -173,7 +173,7 @@ def get_muts_groups_and_seqs(cds_offset):
             else:
                 variants_inconsistent.append(variant)
 
-    sequences = load_refseq_sequences(transcripts)
+    sequences = load_refseq_sequences()
 
     groups = {
         'consistent_up': variants_up,
