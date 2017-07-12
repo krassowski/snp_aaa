@@ -112,7 +112,7 @@ def spidex_get_variant(tb, variant):
 
 class RefseqToEnsemblMapper(IdMapper):
 
-    filename = 'ucsc/refseq_to_ensembl.gz'
+    filename = 'ucsc/refseq_to_ensembl.tsv.gz'
 
 
 def choose_record(records, variant, alt, location=None, convert_strands=False, strict=False, test_transcript=False, test_strand=False, refseq_mapper=[]):
@@ -124,6 +124,7 @@ def choose_record(records, variant, alt, location=None, convert_strands=False, s
     """
     if not refseq_mapper:
         refseq_mapper.append(RefseqToEnsemblMapper())
+        refseq_mapper = refseq_mapper[0]
     else:
         refseq_mapper = refseq_mapper[0]
 
@@ -355,7 +356,7 @@ def spidex_from_list(variants_list):
         'Following mutations were not found in SPIDEX'
         ' but may be found manually in SPANR'
     )
-    show_spanr_queries(to_test_online)
+    # show_spanr_queries(to_test_online)
 
     print('Skipped %s indels (SPIDEX does only 1-1 SNPs)' % len(skipped_indels))
     print('Analysed %s mutations.' % counter['variants'])
@@ -450,7 +451,7 @@ def prepare_plot(variants, variant_feature, spidex_feature):
     return df
 
 
-def plot_aaa_vs_spidex(variants_groups):
+def plot_aaa_vs_spidex(variants_groups, notch=True):
 
     variants = variants_groups
 
@@ -535,7 +536,7 @@ def plot_aaa_vs_spidex(variants_groups):
     p.ax.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(p)
 
-    g = sns.boxplot(x='variable', y='value', data=df)
+    g = sns.boxplot(x='variable', y='value', data=df, notch=notch)
     g.axes.set_title('Boxplot: Poly AAA mutations and dPSI z-score | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('$\Delta \Psi$ z-score')
@@ -555,14 +556,14 @@ def plot_aaa_vs_spidex(variants_groups):
     print('Pearson\'s r', coef)
     print('P-value', p_value)
 
-    g = sns.boxplot(x='variable', y='value', data=df)
+    g = sns.boxplot(x='variable', y='value', data=df, notch=notch)
     g.axes.set_title('Boxplot: Poly AAA mutations and max dPSI | length')
     g.set_xlabel('AAA track length resulting from given mutation')
     g.set_ylabel('max $\Delta \Psi$')
     save_plot(g)
     df = prepare_plot(variants, 'change', 'max_dpsi')
 
-    g = sns.boxplot(x='variable', y='value', data=df)
+    g = sns.boxplot(x='variable', y='value', data=df, notch=notch)
     g.axes.set_title('Boxplot: Poly AAA mutations and max dPSI | change')
     g.set_xlabel('AAA track length change resulting from given mutation')
     g.set_ylabel('max $\Delta \Psi$')
@@ -588,7 +589,7 @@ def plot_aaa_vs_spidex(variants_groups):
     p.ax.set_ylabel('$\Delta \Psi$ z-score')
     save_plot(p)
 
-    g = sns.boxplot(x='variable', y='value', data=df)
+    g = sns.boxplot(x='variable', y='value', data=df, notch=notch)
     g.axes.set_title('Boxplot: Poly AAA mutations and dPSI z-score | length')
     g.set_xlabel('AAA track length resulting from given mutation')
     g.set_ylabel('$\Delta \Psi$ z-score')

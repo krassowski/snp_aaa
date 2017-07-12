@@ -110,13 +110,15 @@ class IdMapper:
             raise ValueError
         with fast_gzip_read(filename, processes=6) as f:
             header = next(f)
+            assert header == '#hg19.knownToRefSeq.value	hg19.knownToEnsembl.value\n'
             for line in f:
+                line = line.strip().split('\t')
                 try:
-                    ref_id, unknown_id = line.strip().split('\t')
-                    if unknown_id != 'n/a':
-                        data[ref_id].append(unknown_id)
+                    ref_id, unknown_id = line
                 except ValueError:
-                    pass
+                    continue
+                if unknown_id != 'n/a':
+                    data[ref_id].append(unknown_id)
         self.data = data
 
     def map(self, ref_id):

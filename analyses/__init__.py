@@ -39,6 +39,8 @@ def report(name, rows, column_names=()):
 
     print('Created report "%s" with %s entries' % (name, len(rows)))
 
+    return filename
+
 
 analyses = OrderedDict()
 

@@ -1,3 +1,6 @@
+obonet
+pygraphviz
+networkx
 matplotlib
 numpy
 pandas

@@ -68,6 +68,30 @@ class AffectedTranscript(SlottedObject):
 
     __volatile_attributes__ = ['poly_aaa']
 
+    def as_hgvs(self, ref, alt):
+        assert alt in self.poly_aaa
+        r = len(ref)
+        a = len(alt)
+
+        positions = '{start}_{end}'.format(start=self.cds_start, end=self.cds_end)
+
+        if r == a:
+            if r == 1:
+                positions = self.cds_start
+                event = '{ref}>{alt}'.format(ref=ref, alt=alt)
+            else:
+                event = '{ref}>{alt}'.format(ref=ref, alt=alt)
+        elif r > a:
+            # positions = '{start}_{end}'.format(start=self.cds_start, end=self.cds_end + 1)
+            event = 'del'
+        elif r < a:
+            # ENST00000399387:c.348_348insCAA
+            positions = '{start}_{end}'.format(start=self.cds_start - 1, end=self.cds_start)
+            #positions = '{start}_{end}'.format(start=self.cds_start, end=self.cds_end)
+            event = 'ins{inserted}'.format(inserted=alt)
+
+        return '{transcript}:c.{positions}{event}'.format(transcript=self.ensembl_id, positions=positions, event=event)
+
 
 class Variant(SlottedObject):
 
