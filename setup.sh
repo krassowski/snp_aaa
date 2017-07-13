@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 wget http://meme-suite.org/meme-software/4.11.3/meme_4.11.3_1.tar.gz
 tar -xvzf meme_4.11.3_1.tar.gz
 cd meme_4.11.3
@@ -21,6 +22,8 @@ gunzip Homo_sapiens.GRCh37.75.dna.primary_assembly.fa.gz -c | bgzip > Homo_sapie
 mv Homo_sapiens.GRCh37.75.dna.primary_assembly.fa.gz.bgz Homo_sapiens.GRCh37.75.dna.primary_assembly.fa.gz
 
 sudo apt-get install python3-dev graphviz libgraphviz-dev pkg-config
-# asuming ubuntu
+# assuming Ubuntu
 pip3 install pygraphviz --install-option="--include-path=/usr/include/graphviz" --install-option="--library-path=/usr/lib/graphviz/"
 pip3 install -r requirements.txt
+
+wget 'https://sourceforge.net/projects/song/files/Sequence%20Ontology/so_2_5_3/so_2_5_3.obo/download' -O so_2_5_3.obo

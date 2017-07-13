@@ -2,6 +2,10 @@ import datetime
 import time
 from collections import defaultdict
 
+import seaborn as sns
+from ggplot import ggplot, ggsave
+from matplotlib import pyplot as plt
+
 from jit import jit
 from multiprocess import fast_gzip_read
 
@@ -138,3 +142,41 @@ def take_transcript_id_without_version(full_id):
 
     """
     return full_id.split('.')[0]
+
+
+def save_plot(plot, extension='svg', size=(10, 5), path='reports/', switch_to_next_figure=True, hide_title=False):
+    from matplotlib import axes
+    import matplotlib as mpl
+    mpl.rcParams['figure.figsize'] = '%s, %s' % size
+
+    seaborns = [
+        sns.axisgrid.JointGrid,
+        sns.axisgrid.FacetGrid
+    ]
+
+    if type(plot) is ggplot:
+        ggsave(filename=path + plot.title + '.' + extension, plot=plot, width=size[0], height=size[1])
+    elif type(plot) in seaborns:
+        plot.fig.set_size_inches(*size)
+        plot.fig.savefig(path + plot.ax.title.get_text() + '.' + extension)
+    elif type(plot) is axes.Subplot:
+        plot.figure.set_size_inches(*size)
+        plot.figure.savefig(path + plot.title.get_text() + '.' + extension)
+    elif plot is plt:
+        figure = plt.gcf()
+        axes = plt.gca()
+        title = axes.title.get_text()
+        if hide_title:
+            plt.title('')
+        figure.set_size_inches(*size)
+        figure.savefig(path + title + '.' + extension)
+    else:
+        raise Exception('Unrecognized plot type: %s' % type(plot))
+    if switch_to_next_figure:
+        new_figure()
+
+
+def new_figure():
+    figures = plt.get_fignums()
+    if figures:
+        plt.figure(max(figures) + 1)

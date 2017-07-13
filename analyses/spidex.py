@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab, ggsave
+from ggplot import ggplot, aes, geom_density, ggtitle, xlab, ylab
 from recordclass import recordclass
 from scipy.stats import ks_2samp, pearsonr
 from tqdm import tqdm
@@ -17,7 +17,7 @@ from tqdm import tqdm
 from analyses import report, reporter
 from cache import cacheable
 from exceptions import StrandMismatch, Mismatch, Intronic, ToManyRecords, TranscriptMismatch
-from helpers import all_poly_a_variants, IdMapper
+from helpers import all_poly_a_variants, IdMapper, save_plot
 from settings import SPIDEX_LOCATION
 
 sns.set(color_codes=True)
@@ -48,35 +48,6 @@ def show_spanr_queries(to_test_online, step=40):
         query = '\n'.join(query)
         print('---')
         print(query)
-
-
-def save_plot(plot, extension='svg', size=(19.2, 12), path='reports/', switch_to_next_figure=True):
-    from matplotlib import axes
-    import matplotlib as mpl
-    mpl.rcParams['figure.figsize'] = '%s, %s' % size
-
-    seaborns = [
-        sns.axisgrid.JointGrid,
-        sns.axisgrid.FacetGrid
-    ]
-
-    if type(plot) is ggplot:
-        ggsave(filename=path + plot.title + '.' + extension, plot=plot, width=size[0], height=size[1])
-    elif type(plot) in seaborns:
-        plot.fig.set_size_inches(*size)
-        plot.fig.savefig(path + plot.ax.title.get_text() + '.' + extension)
-    elif type(plot) is axes.Subplot:
-        plot.figure.set_size_inches(*size)
-        plot.figure.savefig(path + plot.title.get_text() + '.' + extension)
-    elif plot is plt:
-        figure = plt.gcf()
-        axes = plt.gca()
-        figure.set_size_inches(*size)
-        figure.savefig(path + axes.title.get_text() + '.' + extension)
-    else:
-        raise Exception('Unrecognized plot type: %s' % type(plot))
-    if switch_to_next_figure:
-        new_figure()
 
 
 def prepare_data_frame(data_dict, melt=True):
@@ -425,12 +396,6 @@ def divide_variants_by_poly_aaa(spidex_raw_report):
     return variants_groups
 
 
-def new_figure():
-    figures = plt.get_fignums()
-    if figures:
-        plt.figure(max(figures) + 1)
-
-
 def prepare_plot(variants, variant_feature, spidex_feature):
     features = sorted(set([x[variant_feature] for x in variants['all']]))
 
@@ -700,7 +665,7 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
             print('No mutations causing poly_aaa to be > %s' % new_aaa_length)
             continue
         ks_result = ks_2samp(z_scores_1, z_scores_2)
-        print(ks_result)
+        print(new_aaa_length, ks_result)
         ks_results[new_aaa_length] = - np.log(ks_result.pvalue)
 
     lengths = list(ks_results.keys())
@@ -708,7 +673,7 @@ def spidex_aaa_ks_test(variants_groups, already_divided=False):
     plt.hist(
         lengths,
         weights=list(ks_results.values()),
-        bins=range(min(lengths), max(lengths)),
+        bins=list(ks_results.keys()),
         rwidth=0.9
     )
     plt.xticks(lengths)
